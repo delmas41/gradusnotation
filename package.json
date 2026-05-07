@@ -1,0 +1,67 @@
+{
+  "name": "@gradusmusic/notation-mcp",
+  "version": "0.1.1",
+  "description": "Model Context Protocol server for Gradus Notation API. Lets AI agents render music notation, validate input, and search music-theory knowledge — sponsored by Gradus School of Music Composition.",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "notation-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "prepublishOnly": "npm run build"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "claude",
+    "claude-code",
+    "claude-desktop",
+    "cursor",
+    "anthropic",
+    "music",
+    "notation",
+    "music-notation",
+    "sheet-music",
+    "musicxml",
+    "midi",
+    "svg",
+    "verovio",
+    "music-engraving",
+    "lilypond-alternative",
+    "ai",
+    "agent",
+    "ai-tools",
+    "composition",
+    "music-theory",
+    "gradus",
+    "gradusmusic"
+  ],
+  "homepage": "https://gradusmusic.com/notation-api",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/delmas41/gradusnotation.git"
+  },
+  "bugs": {
+    "url": "https://github.com/delmas41/gradusnotation/issues"
+  },
+  "author": "Sean Johnson — Gradus School of Music Composition",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/node": "^20.11.0"
+  }
+}
