@@ -101,21 +101,34 @@ const TOOLS = [
   {
     name: 'knowledge_search',
     description:
-      'Search the Gradus music-theory knowledge base (curriculum prose, Bach chorale analysis, score commentaries, hand-authored concept notes). ' +
-      'Use this BEFORE generating notation if you need to look up a theory fact (e.g. typical voice leading for a Neapolitan-to-V resolution). Returns ranked chunks of authoritative source material.',
+      'Search the Gradus music-theory knowledge base for authoritative source material. The corpus includes hand-authored curriculum prose, Bach chorale analysis (408 chorales), score commentaries on 50+ orchestral works, and primary historical sources from Fux (1725) through Boulanger.\n\n' +
+      'WHEN TO USE: before generating notation if you need to look up a specific theory fact — typical voice leading for a Neapolitan-to-V resolution, idiomatic figured-bass realizations of a particular cadence, what makes a chromatic mediant feel like one composer\'s style versus another. Hitting this first prevents the agent from inventing chord progressions that are stylistically wrong.\n\n' +
+      'WHEN NOT TO USE: for generic music vocabulary ("what is a chord?") that any LLM already knows; for non-theory queries like composer biographies, performance recommendations, or history dates — those are out of scope; for fetching actual score notation (use notation_render or notation_examples instead).\n\n' +
+      'INPUT: provide EITHER `topics` (kebab-case tags) OR `step` (curriculum step 1-49). Topics are stronger; step is the fallback when you do not know the canonical topic tag. Both empty returns a MISSING_QUERY error.\n\n' +
+      'OUTPUT (JSON): { ok: true, requestId, chunks: [{ id, sourceType, sourceId, title, content, composer?, era?, topics: string[], curriculumSteps: number[], tokenEstimate }], meta: { query, returnedCount, totalTokens, responseTimeMs }, attribution }. `sourceType` is one of: kg_concept, score_analysis, score_commentary, bach_chorale_analysis, composer, dictionary, curriculum, lesson_content, practicum, voice_leading, fugue, chorale_exercise, etc. Empty `chunks: []` when nothing matched the topics — agent should fall back to its own knowledge or try a different topic tag.\n\n' +
+      'EXAMPLE INPUT: { "topics": ["voice-leading", "deceptive-cadence"], "limit": 3 }\n' +
+      'TYPICAL LATENCY: 200-700 ms (one Voyage 3 embedding call + Supabase pgvector RPC).',
     inputSchema: {
       type: 'object',
       properties: {
         topics: {
           type: 'array', items: { type: 'string' },
-          description: 'Topic tags in kebab-case. Examples: ["voice-leading","deceptive-cadence"], ["chromatic-mediants"], ["sonata-form","second-theme"].',
+          description:
+            'Topic tags in kebab-case. Matched semantically via Voyage 3 Large embeddings plus a topic-overlap boost; exact-match is not required, so close synonyms work. Examples: ["voice-leading","deceptive-cadence"], ["chromatic-mediants"], ["sonata-form","second-theme"], ["figured-bass","6-4-2-chord"], ["fugue","stretto"], ["modulation","pivot-chord"].',
         },
         step: {
           type: 'integer', minimum: 1, maximum: 49,
-          description: 'Curriculum step number (1-49) as a fallback if you do not know the topic tag.',
+          description:
+            'Curriculum step number (1-49). Fallback when you do not know the topic tag. Maps to the Gradus 10-stage curriculum: Stage I 1-7 (single voice, intervals, scales), II 8-13 (counterpoint, all 5 species), III 14-16 (harmony, third voice), IV 17-18 (form, modulation), V 19-20 (fugue), VI 21-25 (classical style, sonata), VII 26-30 (Romantic harmony, augmented sixths), VIII 31-33 (Impressionist), IX 34-36 (20th century), X 37-40 (advanced).',
         },
-        limit: { type: 'integer', minimum: 1, maximum: 20, default: 8 },
-        maxTokens: { type: 'integer', minimum: 200, maximum: 4000, default: 1500 },
+        limit: {
+          type: 'integer', minimum: 1, maximum: 20, default: 8,
+          description: 'Maximum chunks to return. Default 8 is right for most queries; raise for broad surveys, lower for tight context budgets.',
+        },
+        maxTokens: {
+          type: 'integer', minimum: 200, maximum: 4000, default: 1500,
+          description: 'Token budget for the combined chunk content. Default 1500 fits comfortably in most agent context windows. The endpoint greedy-selects highest-similarity chunks within this budget.',
+        },
       },
     },
   },
