@@ -25,7 +25,7 @@ import {
 
 const API_BASE = (process.env.GRADUS_NOTATION_API_BASE ?? 'https://gradusmusic.com').replace(/\/+$/, '');
 const AGENT_NAME = process.env.GRADUS_AGENT_NAME ?? '@gradusmusic/notation-mcp';
-const PKG_VERSION = '0.1.0';
+const PKG_VERSION = '0.2.0';
 
 // ── HTTP helper ──────────────────────────────────────────────────────────────
 
@@ -189,6 +189,116 @@ const TOOLS = [
       'TYPICAL LATENCY: 30-200 ms. Response is cached at CDN with long TTL — subsequent calls are essentially free.',
     inputSchema: { type: 'object', properties: {} },
   },
+
+  // ── V2: Theory tools (MaestroAnalyzer — no music21 required) ────────────────
+
+  {
+    name: 'theory_validate_ranges',
+    description:
+      'Check every note in a Score JSON against its instrument\'s standard practical range. Returns warnings for out-of-range pitches with measure, beat, MIDI number, and severity.\n\n' +
+      'WHEN TO USE: after parsing a MusicXML file with theory_parse_xml and before analysis — catch unplayable or extreme notes early; when generating or editing a score programmatically and want to verify instrument idiomatic range; when a student submits a composition for critique and range errors should be flagged.\n\n' +
+      'SEVERITY LEVELS: "error" = note is > 1 semitone outside the practical range; "warn" = note is at the boundary (within 1 semitone).\n\n' +
+      'SUPPORTED INSTRUMENTS (partial name match, case-insensitive): Violin, Viola, Cello, Double Bass, Harp, Flute, Piccolo, Oboe, English Horn, Clarinet, Bass Clarinet, Bassoon, Contrabassoon, Soprano/Alto/Tenor/Baritone Sax, Horn, Trumpet, Trombone, Tuba, Piano, Organ, Marimba, Xylophone, Vibraphone, Glockenspiel, Timpani, Soprano/Mezzo/Alto/Tenor/Baritone/Bass (voice).\n\n' +
+      'INPUT: a maestroAnalyst Score object — obtain one by calling theory_parse_xml with MusicXML text.\n\n' +
+      'OUTPUT: { ok, requestId, warnings: [{ measure, beat, pitch, midi, partId, instrumentName, min, max, severity }], attribution }. Empty `warnings` array means all notes are in range.\n\n' +
+      'EXAMPLE: pass a Score with a Violin part containing a note at A7 (MIDI 105) — it will return severity "error" since violin tops out around B7/MIDI 107 but A7 is beyond practical range.',
+    inputSchema: {
+      type: 'object',
+      required: ['notes', 'parts'],
+      description: 'A maestroAnalyst Score object with `notes` and `parts` arrays.',
+      properties: {
+        notes: { type: 'array', description: 'Flat array of Note objects from a Score.' },
+        parts: { type: 'array', description: 'Array of PartInfo objects ({ id, name }).' },
+        measureCount: { type: 'integer' },
+        keySignatures: { type: 'array' },
+        timeSignatures: { type: 'array' },
+      },
+    },
+  },
+  {
+    name: 'theory_respell',
+    description:
+      'Suggest the preferred enharmonic spelling for one or more pitches in a given key context. Picks the spelling that is diatonic to the key (e.g. F# in G major, Gb in F major). Uses the key\'s accidental preference (sharps/flats) as a tiebreaker for chromatic passing tones.\n\n' +
+      'WHEN TO USE: after OMR (optical music recognition) to correct mis-spelled accidentals; when generating notation and unsure whether to write F# or Gb; when transposing — respell after the semitone shift to maintain diatonic spelling; before calling notation_render to clean up accidentals.\n\n' +
+      'INPUT: { keyContext: string, pitches: string[] } OR { keyContext: string, pitch: string }. Pitch strings use scientific notation: "F#4", "Bb3", "C5", "Eb4".\n\n' +
+      'OUTPUT: { ok, requestId, keyContext, results: [{ input, output, changed }], attribution }. `changed` is true when the spelling was adjusted.\n\n' +
+      'EXAMPLES:\n' +
+      '  { keyContext: "F major", pitches: ["F#4", "Bb4", "E4"] }\n' +
+      '  → F#4→Gb4 (Gb is diatonic in F major), Bb4 unchanged, E4 unchanged.\n' +
+      '  { keyContext: "G major", pitch: "Gb4" } → Gb4→F#4 (F# is diatonic in G major).',
+    inputSchema: {
+      type: 'object',
+      required: ['keyContext'],
+      properties: {
+        keyContext: {
+          type: 'string',
+          description: 'Key signature string, e.g. "C major", "G major", "Bb minor", "F# major".',
+        },
+        pitch: {
+          type: 'string',
+          description: 'Single pitch string (scientific notation). Use this OR `pitches`.',
+        },
+        pitches: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Array of pitch strings. Use this OR `pitch`.',
+        },
+      },
+    },
+  },
+  {
+    name: 'theory_parse_xml',
+    description:
+      'Parse a MusicXML string into a maestroAnalyst Score object. The Score is the input type for theory_validate_ranges and can be passed to any maestroAnalyst analysis function.\n\n' +
+      'WHEN TO USE: when you have a MusicXML file (e.g., exported from Sibelius, Finale, MuseScore, Dorico, or produced by notation_render) and want to analyse it — detect key, check ranges, respell accidentals. This is the entry point for the native analysis pipeline that replaces music21.\n\n' +
+      'LIMITATIONS: accepts plain MusicXML text (score-partwise format). Does NOT accept .mxl ZIP archives — decompress first if needed. Score-timewise and other non-partwise formats are not supported.\n\n' +
+      'INPUT: { xml: string } — the full MusicXML document text.\n\n' +
+      'OUTPUT: { ok, requestId, score: Score, meta: { partCount, noteCount, measureCount }, attribution }. The Score JSON can then be passed to theory_validate_ranges or any other theory tool.\n\n' +
+      'TYPICAL SIZE: a Bach chorale (4 parts, 32 measures) produces a Score with ~512 notes. A Beethoven symphony movement (12 parts, 400 measures) may produce 8,000+ notes. Fit within your context budget or process in chunks.',
+    inputSchema: {
+      type: 'object',
+      required: ['xml'],
+      properties: {
+        xml: {
+          type: 'string',
+          description: 'Raw MusicXML document string (score-partwise format). Must begin with <?xml or <score-partwise.',
+        },
+      },
+    },
+  },
+  {
+    name: 'theory_pitch_utils',
+    description:
+      'A collection of fast, pure pitch-utility operations that replace the most-used music21 pitch functions with zero network round-trip.\n\n' +
+      'OPERATIONS:\n' +
+      '  midi_to_pitch   — MIDI number → pitch string. midi=60 → "C4". preferFlats=true → "Db" spellings.\n' +
+      '  pitch_to_midi   — pitch string → MIDI number. "C4"→60, "F#5"→78, "Bb3"→46. Returns null for rests.\n' +
+      '  interval_name   — semitone count → interval quality string. 0→"P1" 3→"m3" 4→"M3" 7→"P5" 12→"P8". Compound intervals: 14→"M2+8".\n' +
+      '  transpose_pitch — shift a pitch by semitones. "C4"+7→"G4", "E5"+-2→"D5". preferFlats controls black-key spelling.\n\n' +
+      'WHEN TO USE: fast arithmetic during score generation or analysis without invoking a full analysis pipeline; populating MIDI output tables; labeling intervals in educational contexts; transposing individual notes while composing.\n\n' +
+      'INPUT: { op: string, ...params } where op is one of the operations above.\n\n' +
+      'EXAMPLES:\n' +
+      '  { op: "midi_to_pitch", midi: 60 }                      → { pitch: "C4" }\n' +
+      '  { op: "pitch_to_midi", pitch: "F#5" }                  → { midi: 78 }\n' +
+      '  { op: "interval_name", semitones: 7 }                  → { interval: "P5" }\n' +
+      '  { op: "transpose_pitch", pitch: "C4", semitones: 7 }   → { pitch: "G4" }\n' +
+      '  { op: "transpose_pitch", pitch: "E4", semitones: 1, preferFlats: true } → { pitch: "F4" }',
+    inputSchema: {
+      type: 'object',
+      required: ['op'],
+      properties: {
+        op: {
+          type: 'string',
+          enum: ['midi_to_pitch', 'pitch_to_midi', 'interval_name', 'transpose_pitch'],
+          description: 'Operation to perform.',
+        },
+        midi: { type: 'integer', description: 'MIDI number (0–127). Required for midi_to_pitch.' },
+        pitch: { type: 'string', description: 'Pitch string e.g. "C4", "F#5". Required for pitch_to_midi and transpose_pitch.' },
+        semitones: { type: 'integer', description: 'Semitone offset. Required for interval_name and transpose_pitch.' },
+        preferFlats: { type: 'boolean', default: false, description: 'Use flat spellings for black keys (Db instead of C#). Optional.' },
+      },
+    },
+  },
 ];
 
 // ── Server ───────────────────────────────────────────────────────────────────
@@ -236,6 +346,34 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         const result = await callApi('/api/v1/notation/schema');
         return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
       }
+      // ── V2: Theory tools ──────────────────────────────────────────────────────
+      case 'theory_validate_ranges': {
+        const result = await callApi('/api/v1/theory/validate-ranges', {
+          method: 'POST',
+          body: JSON.stringify(args ?? {}),
+        });
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      }
+      case 'theory_respell': {
+        const result = await callApi('/api/v1/theory/respell', {
+          method: 'POST',
+          body: JSON.stringify(args ?? {}),
+        });
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      }
+      case 'theory_parse_xml': {
+        const result = await callApi('/api/v1/theory/parse-xml', {
+          method: 'POST',
+          body: JSON.stringify(args ?? {}),
+        });
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      }
+      case 'theory_pitch_utils': {
+        // Bundled pure-function utilities — no HTTP round-trip needed.
+        const result = runPitchUtils(args as Record<string, unknown>);
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      }
+
       default:
         return {
           isError: true,
@@ -250,6 +388,82 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
     };
   }
 });
+
+// ── Bundled pitch utilities (no HTTP) ────────────────────────────────────────
+
+const SHARP_PITCH_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+const FLAT_PITCH_NAMES  = ['C','Db','D','Eb','E','F','Gb','G','Ab','A','Bb','B'];
+
+const INTERVAL_NAME_MAP: Record<number, string> = {
+  0:'P1', 1:'m2', 2:'M2', 3:'m3', 4:'M3', 5:'P4', 6:'A4',
+  7:'P5', 8:'m6', 9:'M6', 10:'m7', 11:'M7', 12:'P8',
+};
+
+function _pitchToMidi(pitch: string): number | null {
+  if (pitch === 'R' || pitch === 'rest') return null;
+  const m = pitch.match(/^([A-G])(##|#|bb|b)?(-?\d+)$/);
+  if (!m) return null;
+  const STEP: Record<string, number> = {C:0,D:2,E:4,F:5,G:7,A:9,B:11};
+  let s = STEP[m[1]];
+  const acc = m[2] ?? '';
+  if (acc === '#') s += 1; else if (acc === '##') s += 2;
+  else if (acc === 'b') s -= 1; else if (acc === 'bb') s -= 2;
+  return (parseInt(m[3], 10) + 1) * 12 + s;
+}
+
+function _midiToPitch(midi: number, preferFlats = false): string {
+  const names = preferFlats ? FLAT_PITCH_NAMES : SHARP_PITCH_NAMES;
+  const pc = ((midi % 12) + 12) % 12;
+  const octave = Math.floor(midi / 12) - 1;
+  return `${names[pc]}${octave}`;
+}
+
+function _intervalName(semitones: number): string {
+  if (semitones < 0) return '?';
+  if (semitones <= 12) return INTERVAL_NAME_MAP[semitones] ?? '?';
+  const oct = Math.floor(semitones / 12);
+  const base = INTERVAL_NAME_MAP[semitones % 12] ?? '?';
+  return `${base}+${oct * 8}`;
+}
+
+function runPitchUtils(args: Record<string, unknown>): Record<string, unknown> {
+  const op = args.op as string;
+  switch (op) {
+    case 'midi_to_pitch': {
+      const midi = Number(args.midi);
+      if (!Number.isInteger(midi) || midi < 0 || midi > 127)
+        return { ok: false, error: '`midi` must be an integer 0–127' };
+      return { ok: true, pitch: _midiToPitch(midi, Boolean(args.preferFlats)) };
+    }
+    case 'pitch_to_midi': {
+      if (typeof args.pitch !== 'string')
+        return { ok: false, error: '`pitch` string required' };
+      const midi = _pitchToMidi(args.pitch);
+      if (midi === null) return { ok: true, midi: null, note: 'rest or unrecognised pitch' };
+      return { ok: true, midi };
+    }
+    case 'interval_name': {
+      const semi = Number(args.semitones);
+      if (!Number.isFinite(semi))
+        return { ok: false, error: '`semitones` number required' };
+      return { ok: true, interval: _intervalName(Math.abs(Math.round(semi))) };
+    }
+    case 'transpose_pitch': {
+      if (typeof args.pitch !== 'string')
+        return { ok: false, error: '`pitch` string required' };
+      const semi = Number(args.semitones);
+      if (!Number.isFinite(semi))
+        return { ok: false, error: '`semitones` number required' };
+      const midi = _pitchToMidi(args.pitch);
+      if (midi === null) return { ok: true, pitch: args.pitch };
+      return { ok: true, pitch: _midiToPitch(midi + Math.round(semi), Boolean(args.preferFlats)) };
+    }
+    default:
+      return { ok: false, error: `Unknown op: ${op}. Valid: midi_to_pitch, pitch_to_midi, interval_name, transpose_pitch` };
+  }
+}
+
+// ── Transport ────────────────────────────────────────────────────────────────
 
 const transport = new StdioServerTransport();
 await server.connect(transport);

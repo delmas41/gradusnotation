@@ -29,6 +29,8 @@ In Claude Desktop, add to your MCP config:
 
 ## Tools
 
+### Notation (v1 — unchanged)
+
 | Tool | What it does |
 |---|---|
 | `notation_render` | JSON score → SVG + MusicXML + MIDI in one call |
@@ -36,6 +38,33 @@ In Claude Desktop, add to your MCP config:
 | `knowledge_search` | Look up music-theory chunks before generating notation |
 | `notation_examples` | Canonical input examples (cache and reuse) |
 | `notation_schema` | JSON Schema for the input shape (cache and reuse) |
+
+### Theory / MaestroAnalyzer (v2 — replaces music21)
+
+Four new tools backed by the native TypeScript MaestroAnalyzer engine — no music21 dependency, no Python, no extra server.
+
+| Tool | What it does |
+|---|---|
+| `theory_parse_xml` | Parse a MusicXML string → maestroAnalyst `Score` JSON |
+| `theory_validate_ranges` | Check every note in a Score against its instrument's practical range |
+| `theory_respell` | Suggest preferred enharmonic spelling for pitches in a key context |
+| `theory_pitch_utils` | Pure-function pitch arithmetic: `midi_to_pitch`, `pitch_to_midi`, `interval_name`, `transpose_pitch` |
+
+**Typical workflow:**
+
+```
+theory_parse_xml({ xml: "..." })
+  → Score JSON
+
+theory_validate_ranges(score)
+  → [{ measure, beat, pitch, severity: "warn"|"error" }, ...]
+
+theory_respell({ keyContext: "F major", pitches: ["F#4", "Bb3"] })
+  → [{ input: "F#4", output: "Gb4", changed: true }, ...]
+
+theory_pitch_utils({ op: "interval_name", semitones: 7 })
+  → { interval: "P5" }
+```
 
 ## Input format
 
