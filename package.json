@@ -1,6 +1,6 @@
 {
   "name": "@gradusmusic/notation-mcp",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Model Context Protocol server for Gradus Notation API. Lets AI agents render music notation, validate input, and search music-theory knowledge — sponsored by Gradus School of Music Composition.",
   "license": "MIT",
   "type": "module",

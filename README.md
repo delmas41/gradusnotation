@@ -45,25 +45,27 @@ Four new tools backed by the native TypeScript MaestroAnalyzer engine — no mus
 
 | Tool | What it does |
 |---|---|
+| `theory_analyze_score` | Parse MusicXML → full harmonic analysis + GKB knowledge chunks in one call |
 | `theory_parse_xml` | Parse a MusicXML string → maestroAnalyst `Score` JSON |
 | `theory_validate_ranges` | Check every note in a Score against its instrument's practical range |
 | `theory_respell` | Suggest preferred enharmonic spelling for pitches in a key context |
 | `theory_pitch_utils` | Pure-function pitch arithmetic: `midi_to_pitch`, `pitch_to_midi`, `interval_name`, `transpose_pitch` |
 
-**Typical workflow:**
+**Typical workflows:**
 
 ```
-theory_parse_xml({ xml: "..." })
-  → Score JSON
+# Full analysis + GKB knowledge in one call
+theory_analyze_score({ xml: "..." })
+  → { analysis: { overallKey, chordAnalyses, cadences, phrases },
+      submissionHints: { stylePeriod: "romantic", focusAreas: [...] },
+      knowledge: { topics: ["augmented-sixth-chords", "modulation"], chunks: [...] } }
 
-theory_validate_ranges(score)
-  → [{ measure, beat, pitch, severity: "warn"|"error" }, ...]
-
+# Step-by-step
+theory_parse_xml({ xml: "..." })        → Score JSON
+theory_validate_ranges(score)           → [{ measure, beat, pitch, severity }, ...]
 theory_respell({ keyContext: "F major", pitches: ["F#4", "Bb3"] })
-  → [{ input: "F#4", output: "Gb4", changed: true }, ...]
-
-theory_pitch_utils({ op: "interval_name", semitones: 7 })
-  → { interval: "P5" }
+                                        → [{ input: "F#4", output: "Gb4", changed: true }]
+theory_pitch_utils({ op: "interval_name", semitones: 7 }) → { interval: "P5" }
 ```
 
 ## Input format

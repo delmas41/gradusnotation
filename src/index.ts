@@ -25,7 +25,7 @@ import {
 
 const API_BASE = (process.env.GRADUS_NOTATION_API_BASE ?? 'https://gradusmusic.com').replace(/\/+$/, '');
 const AGENT_NAME = process.env.GRADUS_AGENT_NAME ?? '@gradusmusic/notation-mcp';
-const PKG_VERSION = '0.2.0';
+const PKG_VERSION = '0.2.1';
 
 // ── HTTP helper ──────────────────────────────────────────────────────────────
 
@@ -190,7 +190,7 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: {} },
   },
 
-  // ── V2: Theory tools (MaestroAnalyzer — no music21 required) ────────────────
+  // ── V2: Theory tools (MaestroAnalyzer + GKB — no music21 required) ──────────
 
   {
     name: 'theory_validate_ranges',
@@ -262,6 +262,57 @@ const TOOLS = [
         xml: {
           type: 'string',
           description: 'Raw MusicXML document string (score-partwise format). Must begin with <?xml or <score-partwise.',
+        },
+      },
+    },
+  },
+  {
+    name: 'theory_analyze_score',
+    description:
+      'One-shot endpoint: parse MusicXML → run the full MaestroAnalyzer harmonic analysis pipeline → query the Gradus Knowledge Base (GKB) for curated theory chunks matched to the score\'s detected features. Returns both the algorithmic analysis and relevant hand-authored knowledge in a single call.\n\n' +
+      'WHEN TO USE: when an agent has a MusicXML score and wants to know what\'s harmonically interesting about it — key, local-key trajectory, chord analyses with Roman numerals, cadences, phrase structure, style period, AND relevant theory context from the GKB (voice-leading rules, harmonic vocabulary, orchestration notes, historical context). This is the richest single-call analysis available.\n\n' +
+      'WHEN NOT TO USE: if you only need range checking (theory_validate_ranges); if you only need re-spelling (theory_respell); if you want raw GKB search without score analysis (knowledge_search).\n\n' +
+      'INPUT: { xml: string, maxKnowledgeTokens?: number (default 1500), includeKnowledge?: boolean (default true) }\n\n' +
+      'OUTPUT: {\n' +
+      '  meta: { partCount, noteCount, measureCount },\n' +
+      '  analysis: {\n' +
+      '    overallKey: { key, mode, confidence },\n' +
+      '    localKeys: [{ measure, key, confidence }],\n' +
+      '    chordAnalyses: [{ measure, beat, primary, readings: [{ rn, rnAscii, inversion, localKey, confidence }], tendencyTones }],\n' +
+      '    cadences: [{ type: "PAC"|"IAC"|"HC"|"DC"|"Plagal"|"Phrygian"|"unclear", ... }],\n' +
+      '    phrases: [{ index, measureStart, measureEnd, fermataMeasures }],\n' +
+      '  },\n' +
+      '  submissionHints: { stylePeriod, focusAreas, rationale },  // inferred style heuristic\n' +
+      '  knowledge: {\n' +
+      '    topics: string[],   // GKB tags derived from the analysis\n' +
+      '    chunks: [{ title, content, sourceType, era, composer, curriculumSteps }],\n' +
+      '    totalTokens: number,\n' +
+      '  },\n' +
+      '}\n\n' +
+      'TYPICAL LATENCY: 200-600 ms (analysis is pure JS; GKB adds one Voyage embedding call ~100-200 ms).',
+    inputSchema: {
+      type: 'object',
+      required: ['xml'],
+      properties: {
+        xml: {
+          type: 'string',
+          description: 'Raw MusicXML document string (score-partwise format).',
+        },
+        maxKnowledgeTokens: {
+          type: 'integer', minimum: 200, maximum: 4000, default: 1500,
+          description: 'Token budget for GKB knowledge chunks. Raise for richer context, lower for tight budgets.',
+        },
+        includeKnowledge: {
+          type: 'boolean', default: true,
+          description: 'Set false to skip GKB lookup and get analysis-only. Useful when knowledge is not needed or when latency matters.',
+        },
+        options: {
+          type: 'object',
+          description: 'Optional AnalyzeScoreOptions: { useLocalKeys: "phrase"|"window"|"overall", localKeyHalfWindow?: number }.',
+          properties: {
+            useLocalKeys: { type: 'string', enum: ['phrase', 'window', 'overall'] },
+            localKeyHalfWindow: { type: 'integer', minimum: 1 },
+          },
         },
       },
     },
@@ -347,6 +398,13 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
       }
       // ── V2: Theory tools ──────────────────────────────────────────────────────
+      case 'theory_analyze_score': {
+        const result = await callApi('/api/v1/theory/analyze', {
+          method: 'POST',
+          body: JSON.stringify(args ?? {}),
+        });
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      }
       case 'theory_validate_ranges': {
         const result = await callApi('/api/v1/theory/validate-ranges', {
           method: 'POST',
