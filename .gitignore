@@ -4,3 +4,8 @@ dist/
 .npm/
 .npmrc
 .DS_Store
+
+# MCP Registry HTTP-auth keypair — NEVER commit
+mcp-registry-key.pem
+*.pem
+well-known-content.txt

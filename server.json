@@ -1,0 +1,38 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "com.gradusmusic/notation",
+  "title": "Gradus Notation",
+  "description": "Render music notation (SVG/MusicXML/MIDI), analyze, search music theory. Free, no auth, no GUI.",
+  "websiteUrl": "https://gradusmusic.com/notation-api",
+  "repository": {
+    "url": "https://github.com/delmas41/gradusnotation",
+    "source": "github"
+  },
+  "version": "0.2.2",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@gradusmusic/notation-mcp",
+      "version": "0.2.2",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "GRADUS_NOTATION_API_BASE",
+          "description": "Override the API base URL. Defaults to https://gradusmusic.com.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "GRADUS_AGENT_NAME",
+          "description": "Self-reported agent name sent in the X-Agent-Name header for telemetry attribution.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}
