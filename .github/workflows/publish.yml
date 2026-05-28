@@ -45,6 +45,13 @@ jobs:
           # we don't want an .npmrc with a NODE_AUTH_TOKEN placeholder — the
           # npm CLI auto-discovers OIDC instead.
 
+      - name: Upgrade npm (OIDC trusted publishing requires npm >= 11.5.1)
+        # Node 22 LTS ships with npm 10.x, which doesn't know how to exchange
+        # the runner's OIDC token for an npm publish credential — it just
+        # falls through to ENEEDAUTH. npm 11.5.1+ adds trusted-publisher
+        # auto-discovery.
+        run: npm install -g npm@latest
+
       - name: Install dependencies
         run: npm ci
 
