@@ -52,25 +52,47 @@ const PKG_VERSION = '0.2.2';
 
 // ── HTTP helper ──────────────────────────────────────────────────────────────
 
-async function callApi(path: string, init?: RequestInit): Promise<unknown> {
+// Default per-request timeout. Node's global fetch has no built-in timeout —
+// without this, a slow or stuck upstream would hang the MCP tool call (and
+// therefore the agent that invoked it) indefinitely.
+const DEFAULT_TIMEOUT_MS = 30_000;
+
+async function callApi(
+  path: string,
+  init?: RequestInit,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+): Promise<unknown> {
   const url = `${API_BASE}${path}`;
-  const res = await fetch(url, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Agent-Name': AGENT_NAME,
-      'User-Agent': `gradus-notation-mcp/${PKG_VERSION}`,
-      ...(init?.headers ?? {}),
-    },
-  });
-  const text = await res.text();
-  let json: unknown = null;
-  try { json = JSON.parse(text); } catch { /* non-JSON body */ }
-  if (!res.ok) {
-    const errBody = json ?? text.slice(0, 500);
-    throw new Error(`Gradus API ${res.status} at ${path}: ${JSON.stringify(errBody)}`);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const res = await fetch(url, {
+      ...init,
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Agent-Name': AGENT_NAME,
+        'User-Agent': `gradus-notation-mcp/${PKG_VERSION}`,
+        ...(init?.headers ?? {}),
+      },
+    });
+    const text = await res.text();
+    let json: unknown = null;
+    try { json = JSON.parse(text); } catch { /* non-JSON body */ }
+    if (!res.ok) {
+      const errBody = json ?? text.slice(0, 500);
+      throw new Error(`Gradus API ${res.status} at ${path}: ${JSON.stringify(errBody)}`);
+    }
+    return json;
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error(`Gradus API request timed out after ${timeoutMs}ms at ${path}`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-  return json;
 }
 
 // ── Tool definitions ─────────────────────────────────────────────────────────
