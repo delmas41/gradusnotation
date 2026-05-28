@@ -76,4 +76,4 @@ jobs:
           npm --version
 
       - name: Publish with provenance (OIDC trusted publisher)
-        run: npm publish --provenance --access public
+        run: npm publish --provenance --access public --loglevel=verbose
