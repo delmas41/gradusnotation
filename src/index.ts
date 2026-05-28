@@ -27,6 +27,29 @@ const API_BASE = (process.env.GRADUS_NOTATION_API_BASE ?? 'https://gradusmusic.c
 const AGENT_NAME = process.env.GRADUS_AGENT_NAME ?? '@gradusmusic/notation-mcp';
 const PKG_VERSION = '0.2.2';
 
+// Validate the configured API base at startup. A malicious or misconfigured
+// override (e.g. plaintext http, or a non-URL string) would otherwise let a
+// network attacker MITM every tool call. Localhost http is permitted so
+// developers can point at a local dev server.
+(() => {
+  let parsed: URL;
+  try {
+    parsed = new URL(API_BASE);
+  } catch {
+    throw new Error(
+      `Invalid GRADUS_NOTATION_API_BASE: ${JSON.stringify(API_BASE)} is not a valid URL.`,
+    );
+  }
+  const isLocalhost = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
+  if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && isLocalhost)) {
+    throw new Error(
+      `GRADUS_NOTATION_API_BASE must use https:// for non-local hosts ` +
+      `(got ${parsed.protocol}//${parsed.hostname}). Plaintext http would let a ` +
+      `network attacker intercept or modify tool calls.`,
+    );
+  }
+})();
+
 // ── HTTP helper ──────────────────────────────────────────────────────────────
 
 async function callApi(path: string, init?: RequestInit): Promise<unknown> {
