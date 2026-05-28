@@ -5,11 +5,12 @@
 # the exact GitHub commit + workflow run, so installers can verify the package
 # was built by this repo (visible as a "Provenance" badge on npmjs.com).
 #
-# Setup once:
-#   1. Generate an npm automation token (npm.com → Access Tokens → Generate New Token
-#      → Granular, with "Publish" permission for the @gradusmusic scope).
-#   2. Add it as a repo secret named NPM_TOKEN
-#      (gh secret set NPM_TOKEN, or via the GitHub UI).
+# Auth: OIDC trusted publishing — no NPM_TOKEN required.
+#   - Configured once at https://www.npmjs.com/package/@gradusmusic/notation-mcp/access
+#     → Trusted Publishing → Add → GitHub Actions → repo: delmas41/gradusnotation,
+#     workflow filename: publish.yml.
+#   - At publish time, npm CLI exchanges the runner's OIDC token for a
+#     short-lived publish credential. No long-lived secret to leak or rotate.
 #
 # Release flow:
 #   - bump version in package.json
@@ -40,7 +41,9 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: '22'
-          registry-url: 'https://registry.npmjs.org'
+          # registry-url intentionally omitted: with OIDC trusted publishing,
+          # we don't want an .npmrc with a NODE_AUTH_TOKEN placeholder — the
+          # npm CLI auto-discovers OIDC instead.
 
       - name: Install dependencies
         run: npm ci
@@ -59,7 +62,5 @@ jobs:
           fi
           echo "Publishing version $PKG_VERSION"
 
-      - name: Publish with provenance
+      - name: Publish with provenance (OIDC trusted publisher)
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
