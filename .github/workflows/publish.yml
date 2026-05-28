@@ -41,9 +41,10 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: '22'
-          # registry-url intentionally omitted: with OIDC trusted publishing,
-          # we don't want an .npmrc with a NODE_AUTH_TOKEN placeholder — the
-          # npm CLI auto-discovers OIDC instead.
+          # registry-url IS needed even for OIDC — it tells npm which registry
+          # to authenticate against. setup-node writes an .npmrc with an empty
+          # _authToken line; npm CLI ignores empty tokens and falls through to
+          # OIDC discovery when run in GitHub Actions with id-token: write.
 
       - name: Upgrade npm (OIDC trusted publishing requires npm >= 11.5.1)
         # Node 22 LTS ships with npm 10.x, which doesn't know how to exchange
@@ -68,6 +69,11 @@ jobs:
             exit 1
           fi
           echo "Publishing version $PKG_VERSION"
+
+      - name: Diagnostic — show npm/node versions
+        run: |
+          node --version
+          npm --version
 
       - name: Publish with provenance (OIDC trusted publisher)
         run: npm publish --provenance --access public
