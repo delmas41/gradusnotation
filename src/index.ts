@@ -25,7 +25,7 @@ import {
 
 const API_BASE = (process.env.GRADUS_NOTATION_API_BASE ?? 'https://gradusmusic.com').replace(/\/+$/, '');
 const AGENT_NAME = process.env.GRADUS_AGENT_NAME ?? '@gradusmusic/notation-mcp';
-const PKG_VERSION = '0.2.4';
+const PKG_VERSION = '0.2.5';
 
 // Validate the configured API base at startup. A malicious or misconfigured
 // override (e.g. plaintext http, or a non-URL string) would otherwise let a
@@ -66,16 +66,22 @@ async function callApi(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
+  // Build headers via the Headers class and `.set()` last for OUR fields.
+  // Plain-object header merging through Node's built-in fetch (undici) can
+  // silently drop a user-set `User-Agent` and replace it with the default
+  // (`undici`) — see https://github.com/nodejs/undici/issues/2392 and related.
+  // Using a Headers instance + case-insensitive `.set()` AFTER merging the
+  // caller's headers guarantees our attribution survives every code path.
+  const headers = new Headers(init?.headers ?? undefined);
+  headers.set('Content-Type', 'application/json');
+  headers.set('X-Agent-Name', AGENT_NAME);
+  headers.set('User-Agent', `gradus-notation-mcp/${PKG_VERSION}`);
+
   try {
     const res = await fetch(url, {
       ...init,
       signal: controller.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Agent-Name': AGENT_NAME,
-        'User-Agent': `gradus-notation-mcp/${PKG_VERSION}`,
-        ...(init?.headers ?? {}),
-      },
+      headers,
     });
     const text = await res.text();
     let json: unknown = null;
