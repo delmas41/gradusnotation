@@ -2,18 +2,18 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "com.gradusmusic/notation",
   "title": "Gradus Notation",
-  "description": "Render music notation (SVG/MusicXML/MIDI), analyze, search music theory. Free, no auth, no GUI.",
+  "description": "Render music notation (SVG/MusicXML/MIDI) + theory search. Free tool from the Gradus curriculum.",
   "websiteUrl": "https://gradusmusic.com/notation-api",
   "repository": {
     "url": "https://github.com/delmas41/gradusnotation",
     "source": "github"
   },
-  "version": "0.2.5",
+  "version": "0.2.6",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@gradusmusic/notation-mcp",
-      "version": "0.2.5",
+      "version": "0.2.6",
       "transport": {
         "type": "stdio"
       },
