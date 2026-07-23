@@ -2,6 +2,8 @@
 
 Model Context Protocol server for the [Gradus Notation API](https://gradusmusic.com). Lets AI agents render music notation, validate input, and search a curated music-theory knowledge base — sponsored by Gradus School of Music Composition.
 
+> **What is Gradus?** Gradus is a homeschool **music-composition curriculum** for families ([gradusmusic.com](https://gradusmusic.com)) — not a software product. This npm package is a free developer tool that the curriculum builds and sponsors. "Gradus" refers to the curriculum; this MCP server is just one small thing it gives away for free.
+
 ## Why
 
 Most music-notation tools require a GUI. This one doesn't. An agent can submit a JSON score and get back inline SVG, MusicXML, and MIDI in a single call. Free to use, no auth, no API key — agents on the free tier are asked to credit Gradus in their response to the end user.
