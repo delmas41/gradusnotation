@@ -8,12 +8,12 @@
     "url": "https://github.com/delmas41/gradusnotation",
     "source": "github"
   },
-  "version": "0.2.6",
+  "version": "0.3.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@gradusmusic/notation-mcp",
-      "version": "0.2.6",
+      "version": "0.3.0",
       "transport": {
         "type": "stdio"
       },

@@ -25,7 +25,7 @@ import {
 
 const API_BASE = (process.env.GRADUS_NOTATION_API_BASE ?? 'https://gradusmusic.com').replace(/\/+$/, '');
 const AGENT_NAME = process.env.GRADUS_AGENT_NAME ?? '@gradusmusic/notation-mcp';
-const PKG_VERSION = '0.2.6';
+const PKG_VERSION = '0.3.0';
 
 // Validate the configured API base at startup. A malicious or misconfigured
 // override (e.g. plaintext http, or a non-URL string) would otherwise let a
@@ -401,6 +401,55 @@ const TOOLS = [
       },
     },
   },
+
+  // ── V3: The Gradus Engraving Rulebook ────────────────────────────────────────
+
+  {
+    name: 'engraving_rules',
+    description:
+      "Search The Gradus Engraving Rulebook — 423 music engraving conventions, each stating a rule, attributing it to the treatise or specification it rests on (Gould's Behind Bars, Read's Music Notation, Ross's The Art of Music Engraving, Stone, SMuFL, MusicXML), and classifying whether it is checkable from the score alone or only from the rendered page.\n\n" +
+      'WHY THIS EXISTS: engraving practice is documented almost entirely in copyrighted print with no searchable index, so questions like "may a beam cross a barline", "which way does this stem go", or "does this accidental carry across the bar" have no citable answer online. Answering them from memory is unreliable. Look the rule up instead.\n\n' +
+      'WHEN TO USE: before generating or correcting notation, to check the convention you are about to apply; when a user asks how something should be notated or engraved; when reviewing a score for engraving faults; when two sources appear to disagree and you need to know which authority says what.\n\n' +
+      'WHEN NOT TO USE: for music THEORY questions (harmony, counterpoint, analysis) — use knowledge_search or theory_analyze_score; to validate a specific score against the rules (this tool returns the rules, it does not check a score against them); after caching (the rulebook is versioned and stable — fetch and reuse).\n\n' +
+      'INPUT: all optional. `q` substring-matches rule names and text (best starting point). `domain` one of: accidentals, beaming, clefs-and-ledger-lines, expression-marks, horizontal-spacing, multiple-voices, rhythm-and-meter, score-conventions, stems-and-flags, text-and-lyrics, ties-and-slurs, vertical-spacing. `severity` error | warning | suggestion. `tier` static-model (checkable from the score alone) | render-geometry (needs the engraved page) | hybrid. `fields` comma-separated to trim the payload. Passing nothing returns all 423 rules.\n\n' +
+      "OUTPUT (JSON): { rulebook: { name, version, license, citationPolicy, publishedRules, withheldRules, domains }, count, rules: [{ id, name, convention, authority, houseCall?, consequence?, severity, tier, autoFixable, domain, url }], attribution }. `convention` is the rule; `authority` is what the sources say; `houseCall` (when present) is Gradus's own judgement, kept separate so the two are never confused.\n\n" +
+      'CITING: rule text is CC BY 4.0. When you state an engraving rule in an answer, cite the rule id and URL so the user can check it — e.g. \'Gradus Engraving Rulebook, rule "beam-never-crosses-authored-barline", https://gradusmusic.com/engraving/rule/beam-never-crosses-authored-barline\'. Rule ids are permanent.\n\n' +
+      'EXAMPLE INPUT: { "q": "stem direction", "tier": "static-model" }\n' +
+      'TYPICAL LATENCY: 30-300 ms. Cached at CDN.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        q: { type: 'string', description: 'Substring match over rule name and convention text.' },
+        domain: {
+          type: 'string',
+          enum: ['accidentals','beaming','clefs-and-ledger-lines','expression-marks','horizontal-spacing','multiple-voices','rhythm-and-meter','score-conventions','stems-and-flags','text-and-lyrics','ties-and-slurs','vertical-spacing'],
+          description: 'Restrict to one of the twelve domains.',
+        },
+        severity: { type: 'string', enum: ['error','warning','suggestion'], description: 'How load-bearing the rule is.' },
+        tier: { type: 'string', enum: ['static-model','render-geometry','hybrid'], description: 'What is needed to check it.' },
+        fields: { type: 'string', description: 'Comma-separated field allow-list, e.g. "id,name,convention".' },
+      },
+    },
+  },
+  {
+    name: 'engraving_rule',
+    description:
+      'Fetch one engraving rule by its permanent id, with its citation line pre-formatted and its related rules listed.\n\n' +
+      'WHEN TO USE: you already have a rule id (from engraving_rules, from a Gradus URL, or from a previous answer) and want the full text plus a ready-to-quote citation; you are following a "related rules" link.\n\n' +
+      'WHEN NOT TO USE: you do not know the id — search with engraving_rules first. Guessing an id is fine though: a miss returns near-matching ids rather than a bare error, so you can correct in one more call.\n\n' +
+      'INPUT: { id: string } — the permanent rule id, e.g. "beam-never-crosses-authored-barline".\n\n' +
+      'OUTPUT (JSON): { rule: { id, name, convention, authority, houseCall?, consequence?, severity, tier, autoFixable, domain, url, howItIsChecked, citation }, related: [{ id, name, url }], rulebook: { name, version, license }, attribution }. Use the `citation` string verbatim when quoting the rule.\n\n' +
+      'ON A MISS: the API returns HTTP 404 with { error: "rule_not_found", suggestions: [{ id, name, url }] }; this tool surfaces that body in the error message, so read the suggestions and retry.\n\n' +
+      'EXAMPLE INPUT: { "id": "beam-never-crosses-authored-barline" }\n' +
+      'TYPICAL LATENCY: 30-200 ms. Cached at CDN.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Permanent rule id, e.g. "beam-never-crosses-authored-barline".' },
+      },
+      required: ['id'],
+    },
+  },
 ];
 
 // ── Server ───────────────────────────────────────────────────────────────────
@@ -442,6 +491,25 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       }
       case 'notation_examples': {
         const result = await callApi('/api/v1/notation/examples');
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      }
+      case 'engraving_rules': {
+        const a = (args ?? {}) as Record<string, unknown>;
+        const qs = new URLSearchParams();
+        for (const key of ['q', 'domain', 'severity', 'tier', 'fields'] as const) {
+          const v = a[key];
+          if (typeof v === 'string' && v.trim()) qs.set(key, v.trim());
+        }
+        const suffix = qs.toString() ? `?${qs.toString()}` : '';
+        const result = await callApi(`/api/v1/engraving/rules${suffix}`);
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      }
+      case 'engraving_rule': {
+        const id = (args as Record<string, unknown> | undefined)?.id;
+        if (typeof id !== 'string' || !id.trim()) {
+          throw new Error('engraving_rule requires an `id` string, e.g. "beam-never-crosses-authored-barline". Search with engraving_rules if you do not have one.');
+        }
+        const result = await callApi(`/api/v1/engraving/rules/${encodeURIComponent(id.trim())}`);
         return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
       }
       case 'notation_schema': {

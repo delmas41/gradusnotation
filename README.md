@@ -70,6 +70,38 @@ theory_respell({ keyContext: "F major", pitches: ["F#4", "Bb3"] })
 theory_pitch_utils({ op: "interval_name", semitones: 7 }) → { interval: "P5" }
 ```
 
+### Engraving (v3 — The Gradus Engraving Rulebook)
+
+| Tool | What it does |
+|---|---|
+| `engraving_rules` | Search 423 sourced music-engraving rules by text, domain, severity, or how they are checked |
+| `engraving_rule` | Fetch one rule by its permanent id, with a ready-to-quote citation and related rules |
+
+Engraving practice is documented almost entirely in copyrighted print — Gould's
+*Behind Bars*, Read's *Music Notation*, Ross's *The Art of Music Engraving* —
+with no searchable index. So "may a beam cross a barline" has no citable answer
+online, and a model asked that question answers confidently from memory. These
+tools return the rule **with its source**, so the answer can be checked.
+
+Each rule separates three things that are usually mashed together: `convention`
+(the rule), `authority` (what the treatises say, cited at chapter level), and
+`houseCall` (where Gradus came down when the sources disagree). Rule ids are
+permanent and rule text is CC BY 4.0 — quote the `citation` field.
+
+```
+# Look up before you generate
+engraving_rules({ q: "stem direction", tier: "static-model" })
+  → { rulebook: { version, license, domains }, count, rules: [{ id, name, convention, authority, ... }] }
+
+# Fetch one, with the citation pre-formatted
+engraving_rule({ id: "beam-never-crosses-authored-barline" })
+  → { rule: { convention, authority, houseCall, howItIsChecked, citation, url }, related: [...] }
+```
+
+A wrong id is cheap: the API answers 404 with near-matching ids, so you can
+correct in one more call.
+
+
 ## Input format
 
 Pitches use scientific notation: `C4`, `F#5`, `Bb3`. Durations use letter codes: `w h q 8 16 32 64` with optional `.` for dotted notes. Notes can be:
