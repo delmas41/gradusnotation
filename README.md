@@ -76,6 +76,7 @@ theory_pitch_utils({ op: "interval_name", semitones: 7 }) → { interval: "P5" }
 |---|---|
 | `engraving_rules` | Search 423 sourced music-engraving rules by text, domain, severity, or how they are checked |
 | `engraving_rule` | Fetch one rule by its permanent id, with a ready-to-quote citation and related rules |
+| `engraving_check` | Check a MusicXML score against the rulebook — findings by part and measure, each citing the rule it breaks |
 
 Engraving practice is documented almost entirely in copyrighted print — Gould's
 *Behind Bars*, Read's *Music Notation*, Ross's *The Art of Music Engraving* —
@@ -100,6 +101,21 @@ engraving_rule({ id: "beam-never-crosses-authored-barline" })
 
 A wrong id is cheap: the API answers 404 with near-matching ids, so you can
 correct in one more call.
+
+`engraving_check` closes the loop: generate notation, check it, fix what it
+finds. Pass a local file path when you can — the server reads it directly, so
+the score never has to travel through the model's context as base64:
+
+```
+engraving_check({ path: "/tmp/my-piece.musicxml" })
+  → { coverage: { parts, measures, notesChecked, unchecked: [...] },
+      findings: [{ ruleId, severity, part, measure,
+                   rule: { code: "GE-226", url, citation } }],
+      summary: { errors, warnings, suggestions } }
+```
+
+Read `coverage.unchecked` before trusting an empty findings list — anything the
+checker could not verify is named there rather than silently passed.
 
 
 ## Input format

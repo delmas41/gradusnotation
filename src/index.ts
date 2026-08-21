@@ -25,7 +25,7 @@ import {
 
 const API_BASE = (process.env.GRADUS_NOTATION_API_BASE ?? 'https://gradusmusic.com').replace(/\/+$/, '');
 const AGENT_NAME = process.env.GRADUS_AGENT_NAME ?? '@gradusmusic/notation-mcp';
-const PKG_VERSION = '0.3.1';
+const PKG_VERSION = '0.4.0';
 
 // Validate the configured API base at startup. A malicious or misconfigured
 // override (e.g. plaintext http, or a non-URL string) would otherwise let a
@@ -450,6 +450,27 @@ const TOOLS = [
       required: ['id'],
     },
   },
+  {
+    name: 'engraving_check',
+    description:
+      'Check a MusicXML score against The Gradus Engraving Rulebook. Runs 30+ statically-checkable rules (bar arithmetic, beaming vs meter, ties, voice separation, ledger/clef choice, expression marks) and returns findings located by part and measure, each carrying the published rule it violates — code, URL, and a ready-to-quote citation.\n\n' +
+      'WHY THIS EXISTS: LLM-generated notation is reliably badly engraved — bars that do not sum, ties between different pitches, beams across barlines — and there is no other public checker for engraving convention. Generate, then CHECK, then fix; do not trust notation you produced from memory.\n\n' +
+      'WHEN TO USE: after generating or editing MusicXML, before showing it to a user; when a user asks "is this score notated correctly"; before feeding a score to an engraver/renderer; as the verification step in any compose-notate loop.\n\n' +
+      'WHEN NOT TO USE: for musical JUDGEMENT (harmony, counterpoint quality — use theory_analyze_score); for layout/collision faults (those need the rendered page and are out of scope for the static tier); to LOOK UP a convention without a score in hand (use engraving_rules).\n\n' +
+      'INPUT: exactly one of `path` (local .musicxml/.xml/.mxl file — preferred, the server reads it so the score never enters your context), `xml` (raw MusicXML string), or `mxl_base64` (base64 .mxl). Raw XML is capped at 2 MB; .mxl at 2 MB compressed / 100 MB decompressed.\n\n' +
+      'OUTPUT (JSON): { coverage: {parts, voices, measures, notesRead, notesChecked, unchecked[]}, skippedRules[], findings: [{ruleId, severity, message, part, partName, measure, voiceIndex, where, rule?: {code, name, url, citation}}], summary: {errors, warnings, suggestions}, rulebook, attribution }. READ `coverage.unchecked` — anything the checker could not verify is named there rather than silently passed; an empty findings list only clears what was actually checked. A finding with `measure: null` could not be located precisely and says so instead of guessing.\n\n' +
+      'REPORTING: relay findings with their measure and citation — "m. 12: the bar holds 5 beats in 4/4 (Gradus GE-226)". The `rule.citation` field is pre-formatted for quoting.\n\n' +
+      'EXAMPLE INPUT: { "path": "/tmp/my-piece.musicxml" }\n' +
+      'TYPICAL LATENCY: 0.3-3 s depending on score size. Not cached — every call re-checks.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Local path to a .musicxml/.xml or .mxl file. Preferred — keeps the score out of your context window.' },
+        xml: { type: 'string', description: 'Raw MusicXML (score-partwise) text. Max 2 MB.' },
+        mxl_base64: { type: 'string', description: 'Base64-encoded compressed .mxl. Max 2 MB compressed.' },
+      },
+    },
+  },
 ];
 
 // ── Server ───────────────────────────────────────────────────────────────────
@@ -491,6 +512,50 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       }
       case 'notation_examples': {
         const result = await callApi('/api/v1/notation/examples');
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      }
+      case 'engraving_check': {
+        const a = (args ?? {}) as Record<string, unknown>;
+        const given = ['path', 'xml', 'mxl_base64'].filter((k) => typeof a[k] === 'string' && (a[k] as string).trim());
+        if (given.length !== 1) {
+          throw new Error(
+            'engraving_check requires exactly one of `path` (local score file, preferred), `xml` (raw MusicXML), or `mxl_base64`. ' +
+            `Got: ${given.length ? given.join(' + ') : 'none'}.`,
+          );
+        }
+
+        // 2 MB mirrors the API's body cap; failing here saves the round-trip
+        // and gives a message that names the actual limit instead of an HTTP 413.
+        const MAX_BYTES = 2 * 1024 * 1024;
+        let body: Record<string, string>;
+
+        if (given[0] === 'path') {
+          // Local read on purpose: this is a stdio server on the user's own
+          // machine, and pushing a score through the model's context as base64
+          // is exactly what the tool exists to avoid.
+          const { readFile, stat } = await import('node:fs/promises');
+          const p = (a.path as string).trim();
+          const st = await stat(p).catch(() => null);
+          if (!st?.isFile()) throw new Error(`engraving_check: no file at ${p}`);
+          if (st.size > MAX_BYTES) {
+            throw new Error(`engraving_check: ${p} is ${(st.size / 1e6).toFixed(1)} MB; the limit is 2 MB. Check one movement at a time.`);
+          }
+          const buf = await readFile(p);
+          // .mxl is a zip (PK header); anything else is treated as XML text.
+          const isZip = buf.length > 1 && buf[0] === 0x50 && buf[1] === 0x4b;
+          body = isZip ? { mxl: buf.toString('base64') } : { xml: buf.toString('utf8') };
+        } else if (given[0] === 'xml') {
+          const xml = (a.xml as string);
+          if (Buffer.byteLength(xml, 'utf8') > MAX_BYTES) throw new Error('engraving_check: xml exceeds the 2 MB limit. Check one movement at a time.');
+          body = { xml };
+        } else {
+          body = { mxl: (a.mxl_base64 as string).replace(/\s+/g, '') };
+        }
+
+        const result = await callApi('/api/v1/engraving/check', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }, 60_000);
         return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
       }
       case 'engraving_rules': {
