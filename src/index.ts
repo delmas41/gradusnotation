@@ -25,7 +25,7 @@ import {
 
 const API_BASE = (process.env.GRADUS_NOTATION_API_BASE ?? 'https://gradusmusic.com').replace(/\/+$/, '');
 const AGENT_NAME = process.env.GRADUS_AGENT_NAME ?? '@gradusmusic/notation-mcp';
-const PKG_VERSION = '0.4.2';
+const PKG_VERSION = '0.5.0';
 
 // Validate the configured API base at startup. A malicious or misconfigured
 // override (e.g. plaintext http, or a non-URL string) would otherwise let a
@@ -119,6 +119,10 @@ const TOOLS = [
       type: 'object',
       required: ['instruments'],
       properties: {
+        save_dir: {
+          type: 'string',
+          description: 'Local directory to save the outputs into (created if missing). When set, the SVG, MusicXML, and MIDI are written as files named after the title and the response returns their paths instead of ~80 KB of inline content — strongly preferred when you want the files rather than the markup.',
+        },
         title: { type: 'string', description: 'Optional title rendered above the score.' },
         composer: { type: 'string', description: 'Optional composer rendered top-right.' },
         tempo: { type: 'number', default: 100, description: 'Tempo in BPM. Affects MIDI timing only; not visually rendered.' },
@@ -323,7 +327,7 @@ const TOOLS = [
       'One-shot endpoint: parse MusicXML → run the full MaestroAnalyzer harmonic analysis pipeline → query the Gradus Knowledge Base (GKB) for curated theory chunks matched to the score\'s detected features. Returns both the algorithmic analysis and relevant hand-authored knowledge in a single call.\n\n' +
       'WHEN TO USE: when an agent has a MusicXML score and wants to know what\'s harmonically interesting about it — key, local-key trajectory, chord analyses with Roman numerals, cadences, phrase structure, style period, AND relevant theory context from the GKB (voice-leading rules, harmonic vocabulary, orchestration notes, historical context). This is the richest single-call analysis available.\n\n' +
       'WHEN NOT TO USE: if you only need range checking (theory_validate_ranges); if you only need re-spelling (theory_respell); if you want raw GKB search without score analysis (knowledge_search).\n\n' +
-      'INPUT: { xml: string, maxKnowledgeTokens?: number (default 1500), includeKnowledge?: boolean (default true) }\n\n' +
+      'INPUT: exactly one of { path } (local score file, PREFERRED — .mxl or .musicxml; .mxl goes up compressed so full movements fit), { xml } (raw MusicXML text, 2 MB limit), or { mxlBase64 }. Plus: maxKnowledgeTokens? (default 1500), includeKnowledge? (default true), measures? ([from, to] — window the per-measure output to the bars you care about), full? (default false — by default the response is a COMPACT summary: keys, sections with sponsorship, cadences, per-measure textures, one reading per chord slice with pedal and tendency tags. A movement\'s full note-by-note response runs to megabytes; pass full: true only when you need the raw score echo and readings).\n\n' +
       'OUTPUT: {\n' +
       '  meta: { partCount, noteCount, measureCount },\n' +
       '  analysis: {\n' +
@@ -340,14 +344,29 @@ const TOOLS = [
       '    totalTokens: number,\n' +
       '  },\n' +
       '}\n\n' +
-      'TYPICAL LATENCY: 200-600 ms (analysis is pure JS; GKB adds one Voyage embedding call ~100-200 ms).',
+      'TYPICAL LATENCY: 200-600 ms for short scores; a few seconds for a full symphony movement via path/.mxl (analysis is pure JS; GKB adds one Voyage embedding call ~100-200 ms).',
     inputSchema: {
       type: 'object',
-      required: ['xml'],
       properties: {
+        path: {
+          type: 'string',
+          description: 'Local path to a score file (.mxl or .musicxml/.xml) — PREFERRED: the file never rides through model context, and .mxl uploads compressed so full movements fit. Provide exactly one of path, xml, mxlBase64.',
+        },
         xml: {
           type: 'string',
-          description: 'Raw MusicXML document string (score-partwise format).',
+          description: 'Raw MusicXML document string (score-partwise format). 2 MB limit — for large scores use `path` or `mxlBase64`.',
+        },
+        mxlBase64: {
+          type: 'string',
+          description: 'Base64 of a compressed .mxl file, as an alternative to xml.',
+        },
+        full: {
+          type: 'boolean', default: false,
+          description: 'Return the full note-by-note response instead of the compact summary. A movement\'s full response runs to megabytes — leave this off unless you need the raw readings.',
+        },
+        measures: {
+          type: 'array', items: { type: 'integer' }, minItems: 2, maxItems: 2,
+          description: 'Inclusive [from, to] measure window for the compact per-measure output, e.g. [39, 47].',
         },
         maxKnowledgeTokens: {
           type: 'integer', minimum: 200, maximum: 4000, default: 1500,
@@ -475,6 +494,11 @@ const TOOLS = [
 
 // ── Server ───────────────────────────────────────────────────────────────────
 
+function toText(result: unknown): string {
+  const compactJson = JSON.stringify(result);
+  return compactJson.length > 100_000 ? compactJson : JSON.stringify(result, null, 2);
+}
+
 const server = new Server(
   { name: 'gradus-notation-mcp', version: PKG_VERSION },
   { capabilities: { tools: {} } },
@@ -488,31 +512,51 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
   try {
     switch (name) {
       case 'notation_render': {
-        const result = await callApi('/api/v1/notation/render', {
+        const a = (args ?? {}) as Record<string, unknown>;
+        const saveDir = typeof a.save_dir === 'string' && (a.save_dir as string).trim() ? (a.save_dir as string).trim() : null;
+        const payload = { ...a };
+        delete (payload as Record<string, unknown>).save_dir;
+        const result = (await callApi('/api/v1/notation/render', {
           method: 'POST',
-          body: JSON.stringify(args ?? {}),
-        });
-        // The render response can be ~70KB+ of SVG. We return it in full so
-        // the agent can decide what to surface to the user.
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+          body: JSON.stringify(payload),
+        })) as Record<string, unknown>;
+        const outputs = result?.outputs as Record<string, string> | undefined;
+        if (saveDir && result?.ok && outputs) {
+          // Write the artifacts locally and return paths — ~80 KB of inline
+          // SVG per call burns agent context for no benefit when the agent
+          // only wants the file.
+          const { mkdir, writeFile } = await import('node:fs/promises');
+          const { join } = await import('node:path');
+          await mkdir(saveDir, { recursive: true });
+          const base = (String((payload as Record<string, unknown>).title ?? 'score').replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'score');
+          const saved: Record<string, string> = {};
+          if (outputs.svg) { const f = join(saveDir, `${base}.svg`); await writeFile(f, outputs.svg); saved.svg = f; }
+          if (outputs.musicxml) { const f = join(saveDir, `${base}.musicxml`); await writeFile(f, outputs.musicxml); saved.musicxml = f; }
+          if (outputs.midiBase64) { const f = join(saveDir, `${base}.mid`); await writeFile(f, Buffer.from(outputs.midiBase64, 'base64')); saved.midi = f; }
+          const slim = { ...result, saved };
+          delete (slim as Record<string, unknown>).outputs;
+          return { content: [{ type: 'text', text: toText(slim) }] };
+        }
+        // No save_dir: return in full so the agent can decide what to surface.
+        return { content: [{ type: 'text', text: toText(result) }] };
       }
       case 'notation_validate': {
         const result = await callApi('/api/v1/notation/validate', {
           method: 'POST',
           body: JSON.stringify(args ?? {}),
         });
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: toText(result) }] };
       }
       case 'knowledge_search': {
         const result = await callApi('/api/v1/knowledge/search', {
           method: 'POST',
           body: JSON.stringify(args ?? {}),
         });
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: toText(result) }] };
       }
       case 'notation_examples': {
         const result = await callApi('/api/v1/notation/examples');
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: toText(result) }] };
       }
       case 'engraving_check': {
         const a = (args ?? {}) as Record<string, unknown>;
@@ -556,7 +600,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           method: 'POST',
           body: JSON.stringify(body),
         }, 60_000);
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: toText(result) }] };
       }
       case 'engraving_rules': {
         const a = (args ?? {}) as Record<string, unknown>;
@@ -567,7 +611,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         }
         const suffix = qs.toString() ? `?${qs.toString()}` : '';
         const result = await callApi(`/api/v1/engraving/rules${suffix}`);
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: toText(result) }] };
       }
       case 'engraving_rule': {
         const id = (args as Record<string, unknown> | undefined)?.id;
@@ -575,45 +619,90 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           throw new Error('engraving_rule requires an `id` string, e.g. "beam-never-crosses-authored-barline". Search with engraving_rules if you do not have one.');
         }
         const result = await callApi(`/api/v1/engraving/rules/${encodeURIComponent(id.trim())}`);
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: toText(result) }] };
       }
       case 'notation_schema': {
         const result = await callApi('/api/v1/notation/schema');
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: toText(result) }] };
       }
       // ── V2: Theory tools ──────────────────────────────────────────────────────
       case 'theory_analyze_score': {
+        const a = (args ?? {}) as Record<string, unknown>;
+        const given = ['path', 'xml', 'mxlBase64'].filter((k) => typeof a[k] === 'string' && (a[k] as string).trim());
+        if (given.length !== 1) {
+          throw new Error(
+            'theory_analyze_score requires exactly one of `path` (local score file, preferred), `xml` (raw MusicXML), or `mxlBase64`. ' +
+            `Got: ${given.length ? given.join(' + ') : 'none'}.`,
+          );
+        }
+        const MAX_BYTES = 2 * 1024 * 1024;
+        const body: Record<string, unknown> = {};
+        if (given[0] === 'path') {
+          // Local read on purpose — a symphony movement's XML should never
+          // ride through model context. Zip (.mxl) goes up compressed.
+          const { readFile, stat } = await import('node:fs/promises');
+          const p = (a.path as string).trim();
+          const st = await stat(p).catch(() => null);
+          if (!st?.isFile()) throw new Error(`theory_analyze_score: no file at ${p}`);
+          const buf = await readFile(p);
+          const isZip = buf.length > 1 && buf[0] === 0x50 && buf[1] === 0x4b;
+          if (isZip) {
+            const b64 = buf.toString('base64');
+            if (b64.length > MAX_BYTES) throw new Error(`theory_analyze_score: ${p} exceeds the request limit even compressed. Split multi-movement files and analyze one movement at a time.`);
+            body.mxlBase64 = b64;
+          } else {
+            if (buf.length > MAX_BYTES) throw new Error(`theory_analyze_score: ${p} is ${(buf.length / 1e6).toFixed(1)} MB of raw XML; the limit is 2 MB. Compress it to .mxl (a zip of the XML) and pass that path — full movements fit compressed.`);
+            body.xml = buf.toString('utf8');
+          }
+        } else if (given[0] === 'xml') {
+          const xml = a.xml as string;
+          if (Buffer.byteLength(xml, 'utf8') > MAX_BYTES) throw new Error('theory_analyze_score: xml exceeds the 2 MB limit. Pass the compressed .mxl via `path` or `mxlBase64` instead — full movements fit compressed.');
+          body.xml = xml;
+        } else {
+          body.mxlBase64 = (a.mxlBase64 as string).replace(/\s+/g, '');
+        }
+        // Context discipline: compact summary by default — the full response
+        // for a movement runs to megabytes. `full: true` opts back in.
+        body.compact = a.full !== true;
+        if (Array.isArray(a.measures)) body.measures = a.measures;
+        for (const k of ['maxKnowledgeTokens', 'includeKnowledge', 'options'] as const) {
+          if (a[k] !== undefined) body[k] = a[k];
+        }
         const result = await callApi('/api/v1/theory/analyze', {
           method: 'POST',
-          body: JSON.stringify(args ?? {}),
-        });
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+          body: JSON.stringify(body),
+        }, 60_000);
+        return { content: [{ type: 'text', text: toText(result) }] };
       }
       case 'theory_validate_ranges': {
         const result = await callApi('/api/v1/theory/validate-ranges', {
           method: 'POST',
           body: JSON.stringify(args ?? {}),
         });
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: toText(result) }] };
       }
       case 'theory_respell': {
         const result = await callApi('/api/v1/theory/respell', {
           method: 'POST',
           body: JSON.stringify(args ?? {}),
         });
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: toText(result) }] };
       }
       case 'theory_parse_xml': {
         const result = await callApi('/api/v1/theory/parse-xml', {
           method: 'POST',
           body: JSON.stringify(args ?? {}),
         });
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: toText(result) }] };
       }
       case 'theory_pitch_utils': {
         // Bundled pure-function utilities — no HTTP round-trip needed.
-        const result = runPitchUtils(args as Record<string, unknown>);
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        // Accept camelCase op spellings (pitchToMidi → pitch_to_midi): the
+        // snake_case enum is the docs' spelling, but agents guess camelCase.
+        const pa = { ...(args as Record<string, unknown>) };
+        if (typeof pa.op === 'string') pa.op = (pa.op as string).replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase();
+        const result = runPitchUtils(pa);
+        return { content: [{ type: 'text', text: toText(result) }] };
       }
 
       default:
