@@ -25,7 +25,7 @@ import {
 
 const API_BASE = (process.env.GRADUS_NOTATION_API_BASE ?? 'https://gradusmusic.com').replace(/\/+$/, '');
 const AGENT_NAME = process.env.GRADUS_AGENT_NAME ?? '@gradusmusic/notation-mcp';
-const PKG_VERSION = '0.5.0';
+const PKG_VERSION = '0.6.0';
 
 // Validate the configured API base at startup. A malicious or misconfigured
 // override (e.g. plaintext http, or a non-URL string) would otherwise let a
@@ -388,6 +388,27 @@ const TOOLS = [
     },
   },
   {
+    name: 'music_critique',
+    description:
+      'Score a piece of music on the 32-dimension Gradus craft scorecard — voice leading (parallel fifths/octaves, spacing, crossings), counterpoint quality, melodic contour, dissonance treatment, harmonic logic, rhythm, texture, and more, calibrated to a named style period. Purely programmatic (no LLM inside): deterministic, fast, and free, so a generate → critique → revise loop costs nothing but round-trips.\n\n' +
+      'WHEN TO USE: after generating or editing notation, BEFORE delivering it — treat it as lint for music. When a user asks "is this any good / what should I fix", critique first and ground your prose in the returned evidence. In agent self-improvement loops: revise until the growth areas clear, then stop.\n\n' +
+      'WHEN NOT TO USE: for harmonic ANALYSIS of existing repertoire (theory_analyze_score — that names chords and keys; this one judges craft); for engraving-notation faults (engraving_check); for aesthetic taste beyond craft (tempo choices, emotional register — that is your judgement, not this tool\'s).\n\n' +
+      'INPUT: exactly one of { path } (local score file, preferred — .mxl goes up compressed), { xml }, or { mxlBase64 }. Plus stylePeriod? (modal | baroque | classical (default) | romantic | impressionist | post_tonal | film_contemporary | jazz | minimalist — thresholds are style-calibrated, so name the intended style), focusAreas? (string[]), context? (one sentence of intent).\n\n' +
+      'OUTPUT (JSON): { meta: { title, partNames, measureCount, noteCount, voiceCount, stylePeriod }, critique: { dimensions: [{ id, name, family, score: 1-5 | null, evidence }], strengths: top 3, growthAreas: bottom 3, scoredCount, naCount, average } }. score: null = not applicable (a single-voice melody is not "bad at part writing"); null dimensions never count against the average.\n\n' +
+      'TYPICAL LATENCY: 300-800 ms.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Local path to a score file (.mxl or .musicxml/.xml) — preferred. Provide exactly one of path, xml, mxlBase64.' },
+        xml: { type: 'string', description: 'Raw MusicXML document string (2 MB limit).' },
+        mxlBase64: { type: 'string', description: 'Base64 of a compressed .mxl file.' },
+        stylePeriod: { type: 'string', enum: ['modal', 'baroque', 'classical', 'romantic', 'impressionist', 'post_tonal', 'film_contemporary', 'jazz', 'minimalist'], description: 'Style the piece intends — scoring thresholds calibrate to it. Default classical.' },
+        focusAreas: { type: 'array', items: { type: 'string' }, description: 'Optional emphasis tags, e.g. ["voice_leading", "counterpoint"].' },
+        context: { type: 'string', description: 'One sentence of intent, e.g. "a gentle lullaby for string quartet".' },
+      },
+    },
+  },
+  {
     name: 'theory_pitch_utils',
     description:
       'A collection of fast, pure pitch-utility operations that replace the most-used music21 pitch functions with zero network round-trip.\n\n' +
@@ -693,6 +714,48 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           method: 'POST',
           body: JSON.stringify(args ?? {}),
         });
+        return { content: [{ type: 'text', text: toText(result) }] };
+      }
+      case 'music_critique': {
+        const a = (args ?? {}) as Record<string, unknown>;
+        const given = ['path', 'xml', 'mxlBase64'].filter((k) => typeof a[k] === 'string' && (a[k] as string).trim());
+        if (given.length !== 1) {
+          throw new Error(
+            'music_critique requires exactly one of `path` (local score file, preferred), `xml` (raw MusicXML), or `mxlBase64`. ' +
+            `Got: ${given.length ? given.join(' + ') : 'none'}.`,
+          );
+        }
+        const MAX_BYTES = 2 * 1024 * 1024;
+        const body: Record<string, unknown> = {};
+        if (given[0] === 'path') {
+          const { readFile, stat } = await import('node:fs/promises');
+          const p = (a.path as string).trim();
+          const st = await stat(p).catch(() => null);
+          if (!st?.isFile()) throw new Error(`music_critique: no file at ${p}`);
+          const buf = await readFile(p);
+          const isZip = buf.length > 1 && buf[0] === 0x50 && buf[1] === 0x4b;
+          if (isZip) {
+            const b64 = buf.toString('base64');
+            if (b64.length > MAX_BYTES) throw new Error(`music_critique: ${p} exceeds the request limit even compressed. Critique one movement at a time.`);
+            body.mxlBase64 = b64;
+          } else {
+            if (buf.length > MAX_BYTES) throw new Error(`music_critique: ${p} is ${(buf.length / 1e6).toFixed(1)} MB of raw XML; the limit is 2 MB. Compress it to .mxl and pass that path.`);
+            body.xml = buf.toString('utf8');
+          }
+        } else if (given[0] === 'xml') {
+          const xml = a.xml as string;
+          if (Buffer.byteLength(xml, 'utf8') > MAX_BYTES) throw new Error('music_critique: xml exceeds the 2 MB limit. Pass the compressed .mxl via `path` or `mxlBase64` instead.');
+          body.xml = xml;
+        } else {
+          body.mxlBase64 = (a.mxlBase64 as string).replace(/\s+/g, '');
+        }
+        for (const k of ['stylePeriod', 'focusAreas', 'context', 'currentStep'] as const) {
+          if (a[k] !== undefined) body[k] = a[k];
+        }
+        const result = await callApi('/api/v1/critique', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }, 60_000);
         return { content: [{ type: 'text', text: toText(result) }] };
       }
       case 'theory_pitch_utils': {
