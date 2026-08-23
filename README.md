@@ -4,6 +4,12 @@ Model Context Protocol server for the [Gradus Notation API](https://gradusmusic.
 
 **General-purpose, not education-specific.** Any agent or application that works with music is the audience — composition assistants, musicology and corpus research, theory Q&A that wants rendered examples, MIDI pipelines, engraving quality checks, games, documentation. Music education is where the tool comes from, not a restriction on what you build with it.
 
+**One install, three named tools:**
+
+- **Gradus Notation** — render a JSON score to inline SVG, MusicXML, and MIDI, with pre-flight validation (`notation_render`, `notation_validate`).
+- **Gradus Harmonic Analyzer** — full-score analysis: Roman numerals, keys and modulations, cadences, pedal points, texture (`theory_analyze_score` and the `theory_*` tools). Also a standalone TypeScript library: [`gradus-analyst`](https://www.npmjs.com/package/gradus-analyst) on npm.
+- **Gradus Engraver** — checks a score against the [Gradus Engraving Rulebook](https://gradusmusic.com/engraving)'s citable GE-coded rules (`engraving_check`).
+
 > **What is Gradus?** Gradus is a homeschool **music-composition curriculum** for families ([gradusmusic.com](https://gradusmusic.com)) — not a software product. This npm package is a free developer tool that the curriculum builds and sponsors. "Gradus" refers to the curriculum; this MCP server is just one small thing it gives away for free.
 
 ## Why
@@ -35,7 +41,7 @@ In Claude Desktop, add to your MCP config:
 
 ## Tools
 
-### Notation (v1 — unchanged)
+### Gradus Notation
 
 | Tool | What it does |
 |---|---|
@@ -45,7 +51,7 @@ In Claude Desktop, add to your MCP config:
 | `notation_examples` | Canonical input examples (cache and reuse) |
 | `notation_schema` | JSON Schema for the input shape (cache and reuse) |
 
-### Theory / MaestroAnalyzer (v2 — replaces music21)
+### Gradus Harmonic Analyzer
 
 Four new tools backed by the native TypeScript MaestroAnalyzer engine — no music21 dependency, no Python, no extra server.
 
@@ -74,7 +80,7 @@ theory_respell({ keyContext: "F major", pitches: ["F#4", "Bb3"] })
 theory_pitch_utils({ op: "interval_name", semitones: 7 }) → { interval: "P5" }
 ```
 
-### Engraving (v3 — The Gradus Engraving Rulebook)
+### Gradus Engraver — checks against the Gradus Engraving Rulebook
 
 | Tool | What it does |
 |---|---|

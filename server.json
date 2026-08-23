@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "com.gradusmusic/notation",
   "title": "Gradus Notation",
-  "description": "Music tools for any AI agent: render notation, analyze scores, check engraving, search theory.",
+  "description": "Gradus Notation + Harmonic Analyzer + Engraver: music tools for any AI agent. Free, no auth.",
   "websiteUrl": "https://gradusmusic.com/notation-api",
   "repository": {
     "url": "https://github.com/delmas41/gradusnotation",
