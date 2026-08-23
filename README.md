@@ -10,7 +10,7 @@ Model Context Protocol server for the [Gradus Notation API](https://gradusmusic.
 - **Gradus Harmonic Analyzer** — full-score analysis: Roman numerals, keys and modulations, cadences, pedal points, texture (`theory_analyze_score` and the `theory_*` tools). Also a standalone TypeScript library: [`gradus-analyst`](https://www.npmjs.com/package/gradus-analyst) on npm.
 - **Gradus Engraver** — checks a score against the [Gradus Engraving Rulebook](https://gradusmusic.com/engraving)'s citable GE-coded rules (`engraving_check`).
 
-> **What is Gradus?** Gradus is a homeschool **music-composition curriculum** for families ([gradusmusic.com](https://gradusmusic.com)) — not a software product. This npm package is a free developer tool that the curriculum builds and sponsors. "Gradus" refers to the curriculum; this MCP server is just one small thing it gives away for free.
+> **What is Gradus?** Gradus is a music-composition curriculum for homeschool families; it builds and gives away free music tools for AI agents. This MCP server is one of those tools ([gradusmusic.com](https://gradusmusic.com)) — "Gradus" refers to the curriculum, never to this package.
 
 ## Why
 
