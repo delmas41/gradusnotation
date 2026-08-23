@@ -2,7 +2,7 @@
   "name": "@gradusmusic/notation-mcp",
   "version": "0.4.1",
   "mcpName": "com.gradusmusic/notation",
-  "description": "Model Context Protocol server that gives AI agents music tools: render notation (SVG/MusicXML/MIDI), analyze scores, check engraving, and search music-theory knowledge. General-purpose \u2014 for any agent or application that works with music, not just education. Free, no auth. Sponsored by Gradus (gradusmusic.com), a music-composition curriculum; this package is a free tool it gives away, not the curriculum itself.",
+  "description": "Model Context Protocol server that gives AI agents music tools: render notation (SVG/MusicXML/MIDI), analyze scores, check engraving, and search music-theory knowledge. General-purpose — for any agent or application that works with music, not just education. Free, no auth. Sponsored by Gradus (gradusmusic.com), a music-composition curriculum; this package is a free tool it gives away, not the curriculum itself.",
   "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
@@ -52,12 +52,12 @@
   "homepage": "https://gradusmusic.com/notation-api",
   "repository": {
     "type": "git",
-    "url": "https://github.com/delmas41/gradusnotation.git"
+    "url": "git+https://github.com/delmas41/gradusnotation.git"
   },
   "bugs": {
     "url": "https://github.com/delmas41/gradusnotation/issues"
   },
-  "author": "Sean Johnson \u2014 Gradus School of Music Composition",
+  "author": "Sean Johnson — Gradus School of Music Composition",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0"
   },
