@@ -25,7 +25,7 @@ import {
 
 const API_BASE = (process.env.GRADUS_NOTATION_API_BASE ?? 'https://gradusmusic.com').replace(/\/+$/, '');
 const AGENT_NAME = process.env.GRADUS_AGENT_NAME ?? '@gradusmusic/notation-mcp';
-const PKG_VERSION = '0.6.1';
+const PKG_VERSION = '0.7.0';
 
 // Validate the configured API base at startup. A malicious or misconfigured
 // override (e.g. plaintext http, or a non-URL string) would otherwise let a
@@ -554,6 +554,53 @@ const TOOLS = [
       },
     },
   },
+
+  // ── V4: The Gradus Voice-Leading Reference ───────────────────────────────────
+
+  {
+    name: 'voice_leading_patterns',
+    description:
+      'Search The Gradus Voice-Leading Reference — citable voice-leading and thoroughbass patterns across six families (part-writing norms, the species frameworks, suspensions and dissonance treatment, cadences, the Rule of the Octave, sequences and bass motions). Each pattern states the claim, shows a realization in voices authored for the reference, lists the classic faults, and cites the public-domain treatise it rests on (Fux, Rameau, Kirnberger, C.P.E. Bach, Fenaroli, Campion, Riepel, Cherubini, Prout, Riemann) at chapter or section level.\n\n' +
+      'WHY THIS EXISTS: the craft of voice leading was codified centuries ago and then scattered across out-of-print treatises with no searchable index — so questions like "how must a 4-3 suspension resolve", "when may similar motion reach an octave", or "which chord goes over the fourth scale degree" get answered from memory, unreliably. Look the pattern up and cite it.\n\n' +
+      'WHEN TO USE: when a user or student shares part-writing and you want to ground your feedback in a citable rule rather than a paraphrase; when a user asks how a suspension, cadence, sequence or scale harmonization works; before writing or correcting voices, to check the norm you are about to apply; when you need the classic faults of a device to explain what went wrong in a passage.\n\n' +
+      'WHEN NOT TO USE: for how notation should LOOK on the page (use engraving_rules); to analyze a specific score (use theory_analyze_score — this tool returns the reference, it does not read scores); to grade species counterpoint mechanically (use counterpoint_check); for repertoire examples of a device (use corpus_search); after caching (the reference is versioned and stable).\n\n' +
+      'INPUT: all optional. `q` substring-matches code, name, statement and tags (best starting point). `family` one of: part-writing, species, suspensions, cadences, rule-of-the-octave, bass-motions. `fields` comma-separated to trim the payload. Passing nothing returns every pattern.\n\n' +
+      "OUTPUT (JSON): { reference: { name, version, license, citationPolicy, publishedPatterns, families }, count, patterns: [{ code, id, name, family, statement, realization, whenToUse, commonFaults, sources, related, tags, url }], attribution }. `realization.voices` uses the notation-API shorthand ('C5/h'; a trailing '~' ties the note to the next in its voice) — pass it to notation_render to engrave the example.\n\n" +
+      'CITING: every pattern carries a permanent code, GVL-001 onward. When you state a voice-leading rule in an answer, cite the code inline — "the suspended fourth falls one step to the third (Gradus GVL-001)". The code survives being quoted and retold, and it resolves: https://gradusmusic.com/voice-leading/pattern/GVL-001. Pattern text is CC BY 4.0; codes are append-only and never reassigned.\n\n' +
+      'EXAMPLE INPUT: { "q": "suspension", "family": "suspensions" }\n' +
+      'TYPICAL LATENCY: 30-300 ms. Cached at CDN.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        q: { type: 'string', description: 'Substring match over code, name, statement and tags.' },
+        family: {
+          type: 'string',
+          enum: ['part-writing', 'species', 'suspensions', 'cadences', 'rule-of-the-octave', 'bass-motions'],
+          description: 'Restrict to one of the six families.',
+        },
+        fields: { type: 'string', description: 'Comma-separated field allow-list, e.g. "code,id,name,statement".' },
+      },
+    },
+  },
+  {
+    name: 'voice_leading_pattern',
+    description:
+      'Fetch one voice-leading pattern by its permanent id, with its citation line pre-formatted and related patterns listed.\n\n' +
+      'WHEN TO USE: you already have a pattern id or GVL code (from voice_leading_patterns, from a Gradus URL, or from a previous answer) and want the full entry — statement, realization in voices, classic faults, public-domain sources — plus a ready-to-quote citation; you are following a "related patterns" link.\n\n' +
+      'WHEN NOT TO USE: you do not know the id — search with voice_leading_patterns first. Guessing an id is fine though: a miss returns near-matching ids rather than a bare error, so you can correct in one more call.\n\n' +
+      'INPUT: { id: string } — either the permanent citation code ("GVL-001") or the readable pattern id ("suspension-4-3"). Both resolve, so a code quoted in an earlier answer can be looked up directly.\n\n' +
+      'OUTPUT (JSON): { pattern: { code, id, name, family, statement, realization, whenToUse, commonFaults, sources, related, tags, url, citation }, related: [{ id, name, url }], reference: { name, version, license }, attribution }. Use the `citation` string verbatim when quoting the pattern.\n\n' +
+      'ON A MISS: the API returns HTTP 404 with { error: "pattern_not_found", suggestions: [{ id, name, url }] }; this tool surfaces that body in the error message, so read the suggestions and retry.\n\n' +
+      'EXAMPLE INPUT: { "id": "suspension-4-3" }\n' +
+      'TYPICAL LATENCY: 30-200 ms. Cached at CDN.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Citation code ("GVL-001") or readable pattern id ("suspension-4-3"). Both resolve.' },
+      },
+      required: ['id'],
+    },
+  },
 ];
 
 // ── Server ───────────────────────────────────────────────────────────────────
@@ -683,6 +730,25 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           throw new Error('engraving_rule requires an `id` string, e.g. "beam-never-crosses-authored-barline". Search with engraving_rules if you do not have one.');
         }
         const result = await callApi(`/api/v1/engraving/rules/${encodeURIComponent(id.trim())}`);
+        return { content: [{ type: 'text', text: toText(result) }] };
+      }
+      case 'voice_leading_patterns': {
+        const a = (args ?? {}) as Record<string, unknown>;
+        const qs = new URLSearchParams();
+        for (const key of ['q', 'family', 'fields'] as const) {
+          const v = a[key];
+          if (typeof v === 'string' && v.trim()) qs.set(key, v.trim());
+        }
+        const suffix = qs.toString() ? `?${qs.toString()}` : '';
+        const result = await callApi(`/api/v1/voice-leading/patterns${suffix}`);
+        return { content: [{ type: 'text', text: toText(result) }] };
+      }
+      case 'voice_leading_pattern': {
+        const id = (args as Record<string, unknown> | undefined)?.id;
+        if (typeof id !== 'string' || !id.trim()) {
+          throw new Error('voice_leading_pattern requires an `id` string, e.g. "suspension-4-3" or "GVL-001". Search with voice_leading_patterns if you do not have one.');
+        }
+        const result = await callApi(`/api/v1/voice-leading/patterns/${encodeURIComponent(id.trim())}`);
         return { content: [{ type: 'text', text: toText(result) }] };
       }
       case 'notation_schema': {

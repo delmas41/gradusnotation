@@ -127,6 +127,41 @@ engraving_check({ path: "/tmp/my-piece.musicxml" })
 Read `coverage.unchecked` before trusting an empty findings list — anything the
 checker could not verify is named there rather than silently passed.
 
+### Craft tools
+
+| Tool | What it does |
+|---|---|
+| `music_critique` | 32-dimension craft scorecard for a score — voice leading, counterpoint, contour, harmony, texture; purely programmatic, evidence-cited |
+| `counterpoint_check` | Fux species grader (species 1–5): pitch lists in, note-indexed rule violations out |
+| `corpus_search` | Find harmonic features in 482 analyzed works — `cadence=Phrygian`, `rn=Ger+6`, `texture=bare-fifth` — with work/movement/measure citations |
+
+When a user shares a piece, these ground your feedback in evidence: the critique
+cites what it measured, the species grader points at the exact note, and the
+corpus search answers "show me a real example" with a citation.
+
+### The Gradus Voice-Leading Reference
+
+| Tool | What it does |
+|---|---|
+| `voice_leading_patterns` | Search the citable GVL-coded patterns — suspensions, cadences, the Rule of the Octave, sequences, part-writing norms — each with an authored realization and public-domain sources |
+| `voice_leading_pattern` | Fetch one pattern by id or GVL code, with a ready-to-quote citation and related patterns |
+
+The sibling of the Engraving Rulebook: where GE codes cover how music should
+look on the page, GVL codes cover how voices should move. Every pattern cites
+the public-domain treatise it rests on — Fux, Rameau, Kirnberger, Fenaroli,
+Riepel, Prout — at chapter level, never through a modern edition, and the
+`realization.voices` field is notation-API shorthand you can hand straight to
+`notation_render` to engrave.
+
+```
+voice_leading_patterns({ q: "suspension", family: "suspensions" })
+  → { reference: { version, license, families }, count,
+      patterns: [{ code: "GVL-001", id: "suspension-4-3", statement, realization, sources, ... }] }
+
+voice_leading_pattern({ id: "GVL-001" })
+  → { pattern: { statement, realization, commonFaults, sources, citation, url }, related: [...] }
+```
+
 
 ## Input format
 
