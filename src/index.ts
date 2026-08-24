@@ -409,6 +409,49 @@ const TOOLS = [
     },
   },
   {
+    name: 'counterpoint_check',
+    description:
+      'Grade a species-counterpoint exercise against the Fux rules — the same deterministic engine that grades every counterpoint exercise in the Gradus curriculum. Species 1 (note against note), 2 (2:1), 3 (4:1), 4 (suspensions), 5 (florid). Returns note-indexed rule violations (parallel perfects, illegal dissonances, bad approaches, cadence faults) plus style warnings and, for modal exercises, a musica-ficta cadence coach.\n\n' +
+      'WHEN TO USE: when writing counterpoint — check after each draft and revise until summary.clean is true; when teaching or reviewing counterpoint — ground feedback in the returned violations instead of judging by eye; when generating exercises — verify your own answer key before presenting it.\n\n' +
+      'WHEN NOT TO USE: for free composition or homophonic writing (music_critique covers general craft); for harmonic labeling (theory_analyze_score).\n\n' +
+      'INPUT: { species: 1-5, cantusFirmus: ["D4","F4","E4","D4"] or [{ pitch, dur? }], counterpoint: ["A4", ...] or [{ pitch, dur?, tied?, rest? }], mode? ("D Dorian" — enables the ficta cadence coach), incomplete? (grading a line mid-writing) }. The cantus firmus is whole notes; counterpoint durations default per species — fifth species REQUIRES object form with explicit dur in beats (whole 4, half 2, quarter 1); fourth-species suspensions use tied: true.\n\n' +
+      'OUTPUT (JSON): { species, result: { violations: [{ noteIndex?, message }], warnings: [string], fictaCadence? }, summary: { violationCount, warningCount, clean } }.\n\n' +
+      'TYPICAL LATENCY: <200 ms.',
+    inputSchema: {
+      type: 'object',
+      required: ['species', 'cantusFirmus', 'counterpoint'],
+      properties: {
+        species: { type: 'integer', enum: [1, 2, 3, 4, 5], description: '1 note-against-note, 2 = 2:1, 3 = 4:1, 4 suspensions, 5 florid.' },
+        cantusFirmus: { type: 'array', items: {}, description: 'Pitch strings ("D4") or { pitch, dur? } objects. The given voice, whole notes.' },
+        counterpoint: { type: 'array', items: {}, description: 'Pitch strings or { pitch, dur?, tied?, rest? } objects. Species 5 requires explicit dur per note.' },
+        mode: { type: 'string', description: 'Musical mode of the cantus, e.g. "D Dorian" — enables the musica-ficta cadence coach.' },
+        incomplete: { type: 'boolean', description: 'True when grading a line still being written (relaxes completion rules).' },
+      },
+    },
+  },
+  {
+    name: 'corpus_search',
+    description:
+      'Find harmonic features in real repertoire: 482 analyzed works (25+ public-domain orchestral movements by Beethoven, Brahms, Bruckner, Dvořák, Tchaikovsky, Mahler, Holst, Ravel, Bach + 400+ Bach chorales; 41,000 measures). Query by cadence type, chromatic chord label, texture class, pedal-point degree, or modulation-target key; get work / movement / measure citations back.\n\n' +
+      'WHEN TO USE: when you would otherwise cite a repertoire example FROM MEMORY — invented citations are the repertoire-side version of invented harmony. "Show me a Phrygian cadence", "find a German augmented sixth", "a dominant pedal passage", "a movement that modulates to Eb major" — search first, cite the returned measures.\n\n' +
+      'WHEN NOT TO USE: for analyzing a score YOU have (theory_analyze_score); for theory explanations (knowledge_search). Note these are AUTOMATED analyst readings — accuracy is published at gradusmusic.com/harmony-benchmark; verify against the score before asserting.\n\n' +
+      'INPUT: at least one of { cadence: "PAC"|"IAC"|"HC"|"DC"|"Plagal"|"Phrygian", rn: chromatic label in ASCII form ("V/V", "viio7/vi", "bII6", "Ger+6", "N6"), texture: "bare-fifth"|"unison"|"octaves"|"bare-third"|"dyad"|"silence", pedal: scale degree ("1", "5", "b3"), key: "Eb major" }. Optional: work (filter to one work id), limit (default 20, max 100).\n\n' +
+      'OUTPUT (JSON): per-feature { total, matches: [{ workId, title, movement, measure | measureStart+measureEnd }] } plus the corpus census and the epistemic note.\n\n' +
+      'TYPICAL LATENCY: <300 ms (indexed — no per-request corpus scan).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        cadence: { type: 'string', description: 'Cadence type: PAC, IAC, HC, DC, Plagal, Phrygian.' },
+        rn: { type: 'string', description: 'Chromatic chord label, ASCII form: V/V, viio7/vi, bII6, Ger+6, N6, V7sus4…' },
+        texture: { type: 'string', description: 'bare-fifth, unison, octaves, bare-third, dyad, silence.' },
+        pedal: { type: 'string', description: 'Pedal-point scale degree: 1, 5, b3…' },
+        key: { type: 'string', description: 'Sustained key-section key (a modulation target), e.g. "Eb major".' },
+        work: { type: 'string', description: 'Optional work-id filter, e.g. beethoven-sym5.' },
+        limit: { type: 'integer', minimum: 1, maximum: 100, description: 'Max matches per feature (default 20).' },
+      },
+    },
+  },
+  {
     name: 'theory_pitch_utils',
     description:
       'A collection of fast, pure pitch-utility operations that replace the most-used music21 pitch functions with zero network round-trip.\n\n' +
@@ -756,6 +799,23 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           method: 'POST',
           body: JSON.stringify(body),
         }, 60_000);
+        return { content: [{ type: 'text', text: toText(result) }] };
+      }
+      case 'counterpoint_check': {
+        const result = await callApi('/api/v1/counterpoint/check', {
+          method: 'POST',
+          body: JSON.stringify(args ?? {}),
+        });
+        return { content: [{ type: 'text', text: toText(result) }] };
+      }
+      case 'corpus_search': {
+        const a = (args ?? {}) as Record<string, unknown>;
+        const qs = new URLSearchParams();
+        for (const k of ['cadence', 'rn', 'texture', 'pedal', 'key', 'work', 'limit'] as const) {
+          const v = a[k];
+          if (v !== undefined && v !== null && String(v).trim()) qs.set(k, String(v).trim());
+        }
+        const result = await callApi(`/api/v1/corpus/search?${qs.toString()}`);
         return { content: [{ type: 'text', text: toText(result) }] };
       }
       case 'theory_pitch_utils': {
