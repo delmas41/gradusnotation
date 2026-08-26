@@ -162,6 +162,38 @@ voice_leading_pattern({ id: "GVL-001" })
   → { pattern: { statement, realization, commonFaults, sources, citation, url }, related: [...] }
 ```
 
+### The Gradus Figured-Bass Corpus
+
+| Tool | What it does |
+|---|---|
+| `figured_bass_exercises` | Search 166 original graded figured-bass exercises across seventeen stages — filter by stage, or search titles, concepts and GVL codes |
+| `figured_bass_exercise` | Fetch one exercise by its permanent id, with the model realization, its teaching note, and the patterns it drills |
+
+Where the Voice-Leading Reference states the rule, the corpus is the practice:
+a bass, its figures, and — unlike almost every surviving collection — a
+four-part **model realization**, machine-checked for voice leading. The stages
+run from root-position triads through the Rule of the Octave, cadence formulas,
+suspensions, the dominant seventh, sequences, minor mode, pedal point, the
+Riepel schemata, modulation and chromatic figures to unfigured bass and
+diminution.
+
+Every exercise is original — nothing is transcribed from any edition — and the
+whole corpus is CC BY 4.0. Exercise ids and stage slugs are permanent, so a
+citation keeps resolving. `givenBass` is what you show the student;
+`realization` is the answer to hold back until they have tried. Both are
+notation-API shorthand, so either goes straight to `notation_render`.
+
+```
+figured_bass_exercises({ stage: "suspensions", fields: "id,title,teaches" })
+  → { corpus: { version, license, stages }, count: 12,
+      exercises: [{ id: "bass-225", title: "Suspension 4–3", teaches, ... }] }
+
+figured_bass_exercise({ id: "bass-225" })
+  → { exercise: { givenBass, realization, solutionNote, keyboard, citation, url },
+      drills: [{ code: "GVL-001", name: "The 4–3 suspension", url }],
+      neighbours: { prev, next } }
+```
+
 
 ## Input format
 

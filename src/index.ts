@@ -25,7 +25,7 @@ import {
 
 const API_BASE = (process.env.GRADUS_NOTATION_API_BASE ?? 'https://gradusmusic.com').replace(/\/+$/, '');
 const AGENT_NAME = process.env.GRADUS_AGENT_NAME ?? '@gradusmusic/notation-mcp';
-const PKG_VERSION = '0.7.0';
+const PKG_VERSION = '0.8.0';
 
 // Validate the configured API base at startup. A malicious or misconfigured
 // override (e.g. plaintext http, or a non-URL string) would otherwise let a
@@ -601,6 +601,54 @@ const TOOLS = [
       required: ['id'],
     },
   },
+
+  // ── V5: The Gradus Figured-Bass Corpus ───────────────────────────────────────
+
+  {
+    name: 'figured_bass_exercises',
+    description:
+      'Search The Gradus Figured-Bass Corpus — 166 original graded figured-bass exercises in seventeen stages, from root-position triads through the Rule of the Octave, cadence formulas, suspensions, the dominant seventh, sequences, minor-mode specifics, pedal point, the Riepel schemata, modulation, chromatic figures, unfigured bass and diminution. Every exercise carries a bass with its figures AND a four-part model realization that has been machine-checked for voice leading.\n\n' +
+      'WHY THIS EXISTS: the graded figured bass is how harmony was actually taught for two centuries, but the surviving collections are out of print or in copyright, and they almost never publish answers — so a learner has nothing to check against, and an agent setting exercises has to invent them from memory, badly. This corpus is an open replacement: written from scratch, staged one difficulty at a time, and published WITH its realizations.\n\n' +
+      'WHEN TO USE: when a user wants figured-bass or thoroughbass practice at a particular level; when you need a worked example of a device (a 4-3 suspension, a cadential 6/4, a falling-fifths sequence) to show rather than describe; when a student has realized a bass and you want the model answer to compare against; when building a practice sequence and you need the next step up.\n\n' +
+      'WHEN NOT TO USE: to look up the RULE behind a device — use voice_leading_patterns, which states and cites it (this tool gives exercises, not doctrine); to analyze a score the user brings — use theory_analyze_score; to grade species counterpoint — use counterpoint_check; for how notation should LOOK on the page — use engraving_rules; after caching (the corpus is versioned and stable).\n\n' +
+      "INPUT: all optional. `stage` accepts either the number (1-17) or the permanent slug: root-position-triads, rule-of-the-octave, first-inversion, cadence-formulas, second-inversion, suspensions, dominant-seventh, sequences, minor-mode, bare-accidentals, non-dominant-sevenths, pedal-point, schemata, modulation, chromatic-figures, unfigured-bass, diminution. `q` substring-matches id, title, concept, the teaches sentence and GVL codes. `fields` comma-separated to trim the payload — worth using, since the whole corpus with every realization is large.\n\n" +
+      'OUTPUT (JSON): { corpus: { name, version, license, provenance, idPolicy, publishedExercises, stages }, count, exercises: [{ id, number, stage, stageSlug, title, concept, teaches, key, timeSignature, given, bassMotion, gvlCodes, keyboard: {suitable, transposeTo, note?}, givenBass, realization, solutionNote?, floridRealization?, url }], attribution }. `givenBass` is what the student sees; `realization` is the answer — do not show it before they have tried. Both use the notation-API shorthand (\'C5/h\'), so either can go straight to notation_render to be engraved. `given: "unfigured-bass"` means the figures are deliberately absent and the student supplies them too. `gvlCodes` link each exercise to the voice-leading patterns it drills — feed one to voice_leading_pattern for the rule behind the exercise.\n\n' +
+      'CITING: exercise ids (bass-1 onward) and stage slugs are permanent and never reused, so a citation keeps resolving: https://gradusmusic.com/figured-bass-corpus/exercise/bass-225. The corpus is CC BY 4.0 — reuse it, including in software and training data, with attribution to Gradus.\n\n' +
+      'EXAMPLE INPUT: { "stage": "suspensions", "fields": "id,title,teaches,key" }\n' +
+      'TYPICAL LATENCY: 50-400 ms. Cached at CDN.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        stage: {
+          type: 'string',
+          description:
+            'Stage number ("6") or permanent slug ("suspensions"). Slugs: root-position-triads, rule-of-the-octave, first-inversion, cadence-formulas, second-inversion, suspensions, dominant-seventh, sequences, minor-mode, bare-accidentals, non-dominant-sevenths, pedal-point, schemata, modulation, chromatic-figures, unfigured-bass, diminution.',
+        },
+        q: { type: 'string', description: 'Substring match over id, title, concept, the teaches sentence and GVL codes.' },
+        fields: { type: 'string', description: 'Comma-separated field allow-list, e.g. "id,title,teaches,givenBass".' },
+      },
+    },
+  },
+  {
+    name: 'figured_bass_exercise',
+    description:
+      'Fetch one figured-bass exercise by its permanent id, with the model realization, the citation line pre-formatted, its voice-leading cross-links resolved to named patterns, and the neighbouring exercises listed.\n\n' +
+      'WHEN TO USE: you already have an exercise id (from figured_bass_exercises, a Gradus URL, or a previous answer) and want the full entry — the given bass, the model realization, the teaching note on why it moves as it does, and keyboard guidance; you are walking a student forward or back through a stage via the neighbours.\n\n' +
+      'WHEN NOT TO USE: you do not know the id — search with figured_bass_exercises first. Guessing is fine though: a miss returns near-matching ids rather than a bare error, so you can correct in one more call.\n\n' +
+      'INPUT: { id: string } — the permanent exercise id, e.g. "bass-225".\n\n' +
+      "OUTPUT (JSON): { exercise: { …every field the search tool returns…, citation }, drills: [{ code, name, url }], neighbours: { prev?, next? }, corpus: { name, version, license }, attribution }. `solutionNote` explains why the realization moves as it does — quote it rather than inventing an explanation. `drills` resolves the exercise's GVL codes to named voice-leading patterns, so you can cite the rule alongside the example. Stage-17 exercises also carry `floridRealization`, the block chords opened into an idiomatic texture.\n\n" +
+      'TEACHING WITH IT: give the student `givenBass` and `teaches`; hold `realization` back until they have attempted it, then compare. The realization is a MODEL, not the only correct answer — a different realization that breaks no rule is also right, so read a difference as a difference, not a mistake.\n\n' +
+      'ON A MISS: the API returns HTTP 404 with { error: "exercise_not_found", suggestions: [{ id, title, url }] }; this tool surfaces that body in the error message, so read the suggestions and retry.\n\n' +
+      'EXAMPLE INPUT: { "id": "bass-225" }\n' +
+      'TYPICAL LATENCY: 30-200 ms. Cached at CDN.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Permanent exercise id, e.g. "bass-225".' },
+      },
+      required: ['id'],
+    },
+  },
 ];
 
 // ── Server ───────────────────────────────────────────────────────────────────
@@ -749,6 +797,31 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           throw new Error('voice_leading_pattern requires an `id` string, e.g. "suspension-4-3" or "GVL-001". Search with voice_leading_patterns if you do not have one.');
         }
         const result = await callApi(`/api/v1/voice-leading/patterns/${encodeURIComponent(id.trim())}`);
+        return { content: [{ type: 'text', text: toText(result) }] };
+      }
+
+      case 'figured_bass_exercises': {
+        const a = (args ?? {}) as Record<string, unknown>;
+        const qs = new URLSearchParams();
+        for (const key of ['stage', 'q', 'fields'] as const) {
+          const v = a[key];
+          // `stage` is documented as a string but a model may well send the
+          // number — accept both rather than silently dropping the filter and
+          // returning all 166 exercises as if none had been asked for.
+          if (typeof v === 'string' && v.trim()) qs.set(key, v.trim());
+          else if (key === 'stage' && typeof v === 'number' && Number.isFinite(v)) qs.set(key, String(v));
+        }
+        const suffix = qs.toString() ? `?${qs.toString()}` : '';
+        const result = await callApi(`/api/v1/figured-bass/exercises${suffix}`);
+        return { content: [{ type: 'text', text: toText(result) }] };
+      }
+
+      case 'figured_bass_exercise': {
+        const id = (args as Record<string, unknown> | undefined)?.id;
+        if (typeof id !== 'string' || !id.trim()) {
+          throw new Error('figured_bass_exercise requires an `id` string, e.g. "bass-225". Search with figured_bass_exercises if you do not have one.');
+        }
+        const result = await callApi(`/api/v1/figured-bass/exercises/${encodeURIComponent(id.trim())}`);
         return { content: [{ type: 'text', text: toText(result) }] };
       }
       case 'notation_schema': {

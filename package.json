@@ -1,6 +1,6 @@
 {
   "name": "@gradusmusic/notation-mcp",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "mcpName": "com.gradusmusic/notation",
   "description": "Three Gradus music tools for AI agents in one MCP server: Gradus Notation (render scores to SVG/MusicXML/MIDI), the Gradus Harmonic Analyzer (Roman numerals, keys, cadences, texture), and the Gradus Engraver (checks against a citable engraving rulebook). General-purpose \u2014 for any agent or application that works with music. Free, no auth. Gradus is a music-composition curriculum for homeschool families; it builds and gives away free music tools for AI agents.",
   "license": "MIT",
